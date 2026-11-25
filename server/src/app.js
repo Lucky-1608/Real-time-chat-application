@@ -3,12 +3,15 @@ import cors from 'cors';
 import helmet from 'helmet';
 import env from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { createAuthRateLimiter } from './middleware/rateLimit.js';
+import { createAuthRouter } from './routes/auth.js';
+import { createMessagesRouter } from './routes/messages.js';
 
 /**
  * Builds the Express application without binding a port so it can be
  * shared between the HTTP server bootstrap and Supertest integration tests.
  */
-export function createApp({ registerRoutes } = {}) {
+export function createApp({ registerRoutes, authRateLimiter } = {}) {
   const app = express();
 
   app.use(helmet());
@@ -28,6 +31,12 @@ export function createApp({ registerRoutes } = {}) {
       timestamp: new Date().toISOString(),
     });
   });
+
+  app.use(
+    '/api/auth',
+    createAuthRouter({ rateLimiter: authRateLimiter ?? createAuthRateLimiter() })
+  );
+  app.use('/api/messages', createMessagesRouter());
 
   if (typeof registerRoutes === 'function') {
     registerRoutes(app);

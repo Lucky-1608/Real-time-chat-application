@@ -6,6 +6,7 @@ import { parseEnv } from '../src/config/env.js';
 import app, { createApp } from '../src/app.js';
 import { asyncHandler } from '../src/utils/asyncHandler.js';
 import { AppError } from '../src/middleware/errorHandler.js';
+import { signToken } from '../src/middleware/auth.js';
 import { attachSockets } from '../src/sockets/index.js';
 
 describe('Phase 1: Server & WebSocket Foundation', () => {
@@ -102,8 +103,11 @@ describe('Phase 1: Server & WebSocket Foundation', () => {
       const { port } = httpServer.address();
       const url = `http://127.0.0.1:${port}`;
 
-      const clientA = createClient(url, { transports: ['websocket'] });
-      const clientB = createClient(url, { transports: ['websocket'] });
+      const tokenA = signToken({ id: '507f1f77bcf86cd799439011', username: 'alice' });
+      const tokenB = signToken({ id: '507f1f77bcf86cd799439012', username: 'bob' });
+
+      const clientA = createClient(url, { transports: ['websocket'], auth: { token: tokenA } });
+      const clientB = createClient(url, { transports: ['websocket'], auth: { token: tokenB } });
       socketsToClose.push(clientA, clientB);
 
       await Promise.all([
