@@ -33,3 +33,11 @@ export const messageSendSchema = z.object({
     .max(2000, 'Message cannot exceed 2000 characters'),
   roomId: z.string().trim().min(1).max(64).default('global'),
 });
+
+export const messageReadSchema = z.object({
+  messageIds: z
+    .array(z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid message ID'))
+    .min(1)
+    .max(100),
+  roomId: z.string().trim().min(1).max(64).default('global'),
+});

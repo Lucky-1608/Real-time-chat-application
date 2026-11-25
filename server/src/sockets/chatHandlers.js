@@ -1,5 +1,5 @@
 import Message, { serializeMessage } from '../models/Message.js';
-import { messageSendSchema } from '../utils/validators.js';
+import { messageReadSchema, messageSendSchema } from '../utils/validators.js';
 
 const RATE_WINDOW_MS = 10_000;
 const MAX_MESSAGES_PER_WINDOW = 10;
@@ -18,6 +18,7 @@ function isSocketRateLimited(timestamps, now) {
 
 export function registerChatHandlers(io, socket) {
   const sendTimestamps = [];
+  const { id: userId, username } = socket.data.user;
 
   socket.on('message:send', async (payload, ack) => {
     const respond = typeof ack === 'function' ? ack : () => {};
@@ -35,7 +36,6 @@ export function registerChatHandlers(io, socket) {
     }
 
     const { text, roomId } = parsed.data;
-    const { id: userId, username } = socket.data.user;
 
     try {
       // Persist before broadcasting so every delivered message is guaranteed durable
@@ -54,6 +54,44 @@ export function registerChatHandlers(io, socket) {
     } catch (err) {
       console.error('[socket] Failed to persist message:', err);
       return respond({ ok: false, error: 'Failed to send message' });
+    }
+  });
+
+  socket.on('typing:start', (payload) => {
+    const roomId = typeof payload?.roomId === 'string' && payload.roomId ? payload.roomId : 'global';
+    socket.to(roomId).emit('typing:start', { userId, username });
+  });
+
+  socket.on('typing:stop', (payload) => {
+    const roomId = typeof payload?.roomId === 'string' && payload.roomId ? payload.roomId : 'global';
+    socket.to(roomId).emit('typing:stop', { userId, username });
+  });
+
+  socket.on('message:read', async (payload, ack) => {
+    const respond = typeof ack === 'function' ? ack : () => {};
+    const parsed = messageReadSchema.safeParse(payload);
+    if (!parsed.success) {
+      return respond({ ok: false, error: 'Invalid read receipt payload' });
+    }
+
+    const { messageIds, roomId } = parsed.data;
+
+    try {
+      await Message.updateMany(
+        { _id: { $in: messageIds }, roomId, sender: { $ne: userId } },
+        { $addToSet: { readBy: userId } }
+      );
+
+      io.to(roomId).emit('message:read', {
+        messageIds,
+        userId,
+        username,
+      });
+
+      return respond({ ok: true });
+    } catch (err) {
+      console.error('[socket] Failed to update read receipts:', err);
+      return respond({ ok: false, error: 'Failed to mark messages as read' });
     }
   });
 }

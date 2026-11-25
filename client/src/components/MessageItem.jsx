@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import styles from './MessageItem.module.css';
 
 function formatTime(isoString) {
@@ -7,14 +8,25 @@ function formatTime(isoString) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function MessageItem({ message, isOwn, isGrouped, onRetry }) {
+export default function MessageItem({
+  message,
+  isOwn,
+  isGrouped,
+  userDirectory = {},
+  onRetry,
+  itemRef,
+}) {
+  const [showReaders, setShowReaders] = useState(false);
   const { _id, senderName, text, createdAt, status, error, readBy = [] } = message;
 
-  // Exclude self from readBy count when computing "Seen by N"
-  const otherReadersCount = readBy.filter((id) => id !== message.sender).length;
+  // Exclude sender from readBy when computing "Seen by N"
+  const otherReaderIds = readBy.filter((id) => id !== message.sender);
+  const readerNames = otherReaderIds.map((id) => userDirectory[id] || 'User');
 
   return (
     <div
+      ref={itemRef}
+      data-message-id={_id}
       className={`${styles.row} ${isOwn ? styles.ownRow : styles.otherRow} ${
         isGrouped ? styles.grouped : styles.firstInGroup
       }`}
@@ -30,13 +42,26 @@ export default function MessageItem({ message, isOwn, isGrouped, onRetry }) {
 
           {isOwn && status === 'sending' && <span className={styles.status}>Sending…</span>}
 
-          {isOwn && status === 'sent' && (
-            <span className={styles.status}>
-              {otherReadersCount > 0 ? `Seen by ${otherReadersCount}` : 'Sent'}
-            </span>
+          {isOwn && status === 'sent' && otherReaderIds.length === 0 && (
+            <span className={styles.status}>Sent</span>
+          )}
+
+          {isOwn && status === 'sent' && otherReaderIds.length > 0 && (
+            <button
+              type="button"
+              className={styles.seenBtn}
+              title={`Seen by ${readerNames.join(', ')}`}
+              onClick={() => setShowReaders((prev) => !prev)}
+            >
+              Seen by {otherReaderIds.length}
+            </button>
           )}
         </div>
       </div>
+
+      {isOwn && showReaders && readerNames.length > 0 && (
+        <div className={styles.readersList}>Seen by {readerNames.join(', ')}</div>
+      )}
 
       {isOwn && status === 'failed' && (
         <div className={styles.failedRow} role="alert">

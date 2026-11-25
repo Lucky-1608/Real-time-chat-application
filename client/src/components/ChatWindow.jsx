@@ -22,11 +22,13 @@ export default function ChatWindow() {
     connectionStatus,
     onlineUsers,
     typingUsers,
+    userDirectory,
     loadOlderMessages,
     sendMessage,
     retryMessage,
     emitTypingStart,
     emitTypingStop,
+    markMessagesRead,
   } = useChat();
 
   const { notifyTyping, stopTyping } = useTypingIndicator(emitTypingStart, emitTypingStop);
@@ -66,12 +68,14 @@ export default function ChatWindow() {
           <MessageList
             messages={messages}
             currentUserId={user?.id}
+            userDirectory={userDirectory}
             hasMore={hasMore}
             loadingHistory={loadingHistory}
             loadingOlder={loadingOlder}
             historyError={historyError}
             onLoadOlder={loadOlderMessages}
             onRetry={retryMessage}
+            onMarkRead={markMessagesRead}
           />
           <TypingIndicator typingUsers={typingUsers} />
           <MessageInput

@@ -21,6 +21,8 @@ function mergeUniqueMessages(existing, incoming) {
 export function useChat() {
   const { token, user, logout } = useAuth();
   const socketRef = useRef(null);
+  const hasConnectedOnceRef = useRef(false);
+  const latestTimestampRef = useRef(null);
 
   const [messages, setMessages] = useState([]);
   const [hasMore, setHasMore] = useState(false);
@@ -31,6 +33,34 @@ export function useChat() {
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [typingUsers, setTypingUsers] = useState([]);
+  const [userDirectory, setUserDirectory] = useState(() =>
+    user?.id ? { [user.id]: user.username } : {}
+  );
+
+  // Keep latest confirmed message timestamp for reconnect catch-up.
+  useEffect(() => {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m.status !== 'sending' && m.status !== 'failed' && m.createdAt) {
+        latestTimestampRef.current = m.createdAt;
+        break;
+      }
+    }
+  }, [messages]);
+
+  const registerUsers = useCallback((entries) => {
+    setUserDirectory((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const { userId, username } of entries) {
+        if (userId && username && next[userId] !== username) {
+          next[userId] = username;
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, []);
 
   // Fetch initial message history
   useEffect(() => {
@@ -45,6 +75,7 @@ export function useChat() {
         if (cancelled) return;
         setMessages(data.messages.map((m) => ({ ...m, status: 'sent' })));
         setHasMore(Boolean(data.hasMore));
+        registerUsers(data.messages.map((m) => ({ userId: m.sender, username: m.senderName })));
       } catch (err) {
         if (!cancelled) {
           setHistoryError(err.message || 'Failed to load messages');
@@ -60,13 +91,15 @@ export function useChat() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, registerUsers]);
 
   // Own all socket lifecycle & event listeners; safe under React 18 StrictMode double-mount.
   useEffect(() => {
     if (!token) return;
 
+    hasConnectedOnceRef.current = false;
     setConnectionStatus('connecting');
+
     const socket = io(API_URL, {
       auth: { token },
       reconnection: true,
@@ -76,8 +109,27 @@ export function useChat() {
     });
     socketRef.current = socket;
 
-    const handleConnect = () => {
+    const handleConnect = async () => {
       setConnectionStatus('connected');
+
+      // On reconnect, fetch any messages missed while offline and dedupe by _id.
+      if (hasConnectedOnceRef.current && latestTimestampRef.current) {
+        try {
+          const data = await apiFetch(
+            `/api/messages?after=${encodeURIComponent(latestTimestampRef.current)}&limit=100`
+          );
+          if (data.messages?.length > 0) {
+            setMessages((prev) => mergeUniqueMessages(prev, data.messages));
+            registerUsers(
+              data.messages.map((m) => ({ userId: m.sender, username: m.senderName }))
+            );
+          }
+        } catch {
+          // Non-fatal: history can still be refreshed manually if catch-up fails.
+        }
+      }
+
+      hasConnectedOnceRef.current = true;
     };
 
     const handleDisconnect = () => {
@@ -97,6 +149,7 @@ export function useChat() {
     };
 
     const handleMessageNew = (incoming) => {
+      registerUsers([{ userId: incoming.sender, username: incoming.senderName }]);
       setMessages((prev) => {
         // Reconcile optimistic message if this is our own message arriving via broadcast.
         const optimisticIdx = prev.findIndex(
@@ -117,11 +170,13 @@ export function useChat() {
     const handlePresenceList = (users) => {
       if (Array.isArray(users)) {
         setOnlineUsers(users);
+        registerUsers(users);
       }
     };
 
     const handleTypingStart = ({ userId, username }) => {
       if (!userId || userId === user?.id) return;
+      registerUsers([{ userId, username }]);
       setTypingUsers((prev) =>
         prev.some((u) => u.userId === userId) ? prev : [...prev, { userId, username }]
       );
@@ -131,8 +186,11 @@ export function useChat() {
       setTypingUsers((prev) => prev.filter((u) => u.userId !== userId));
     };
 
-    const handleMessageRead = ({ messageIds, userId }) => {
+    const handleMessageRead = ({ messageIds, userId, username }) => {
       if (!Array.isArray(messageIds) || !userId) return;
+      if (username) {
+        registerUsers([{ userId, username }]);
+      }
       const idSet = new Set(messageIds);
       setMessages((prev) =>
         prev.map((m) => {
@@ -160,7 +218,7 @@ export function useChat() {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, user?.id, logout]);
+  }, [token, user?.id, logout, registerUsers]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadingOlder || !hasMore || messages.length === 0) return;
@@ -174,19 +232,21 @@ export function useChat() {
       );
       setMessages((prev) => mergeUniqueMessages(data.messages, prev));
       setHasMore(Boolean(data.hasMore));
+      registerUsers(data.messages.map((m) => ({ userId: m.sender, username: m.senderName })));
     } catch (err) {
       setHistoryError(err.message || 'Failed to load older messages');
     } finally {
       setLoadingOlder(false);
     }
-  }, [loadingOlder, hasMore, messages]);
+  }, [loadingOlder, hasMore, messages, registerUsers]);
 
   const sendWithOptimism = useCallback(
     (text, existingTempId = null) => {
       const trimmed = text.trim();
       if (!trimmed || !user) return;
 
-      const tempId = existingTempId || `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const tempId =
+        existingTempId || `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
 
       if (existingTempId) {
         setMessages((prev) =>
@@ -218,7 +278,6 @@ export function useChat() {
       socket.emit('message:send', { text: trimmed }, (ack) => {
         if (ack?.ok) {
           setMessages((prev) => {
-            // Avoid duplicates if message:new broadcast arrived before the ack callback.
             const alreadyConfirmed = prev.some((m) => m._id === ack.id);
             if (alreadyConfirmed) {
               return prev.filter((m) => m._id !== tempId);
@@ -261,6 +320,13 @@ export function useChat() {
     socketRef.current?.emit('typing:stop');
   }, []);
 
+  const markMessagesRead = useCallback((messageIds) => {
+    if (!Array.isArray(messageIds) || messageIds.length === 0) return;
+    if (socketRef.current?.connected) {
+      socketRef.current.emit('message:read', { messageIds });
+    }
+  }, []);
+
   return {
     messages,
     hasMore,
@@ -270,10 +336,12 @@ export function useChat() {
     connectionStatus,
     onlineUsers,
     typingUsers,
+    userDirectory,
     loadOlderMessages,
     sendMessage,
     retryMessage,
     emitTypingStart,
     emitTypingStop,
+    markMessagesRead,
   };
 }

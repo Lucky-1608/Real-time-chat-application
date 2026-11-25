@@ -74,6 +74,23 @@
   opacity: 0.85;
 }
 
+.seenBtn {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: 0.7rem;
+  opacity: 0.9;
+  cursor: pointer;
+  text-decoration: underline dotted;
+}
+
+.readersList {
+  margin-top: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
 .failedRow {
   display: flex;
   align-items: center;
