@@ -1,0 +1,61 @@
+.form {
+  display: flex;
+  align-items: flex-end;
+  gap: 0.65rem;
+  padding: 0.75rem 1.25rem 1rem;
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-surface);
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.textarea {
+  flex: 1;
+  resize: none;
+  min-height: 42px;
+  max-height: 130px;
+  padding: 0.65rem 0.85rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.94rem;
+  line-height: 1.4;
+}
+
+.textarea:focus {
+  border-color: var(--border-focus);
+  outline: none;
+}
+
+.sendBtn {
+  height: 42px;
+  padding: 0 1.15rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease;
+}
+
+.sendBtn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.sendBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
