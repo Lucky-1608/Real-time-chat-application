@@ -73,7 +73,7 @@ export function registerChatHandlers(
       });
     }
 
-    const { text, roomId, attachments } = parsed.data;
+    const { text, roomId, attachments, mentions } = parsed.data;
 
     try {
       const room = await resolveAuthorizedRoom(roomId, userId);
@@ -99,6 +99,7 @@ export function registerChatHandlers(
         username,
         text,
         attachments,
+        mentions,
         io,
         presence,
         storageService,

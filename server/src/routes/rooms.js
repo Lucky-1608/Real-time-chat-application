@@ -14,6 +14,7 @@ import {
   changeMemberRoleSchema,
   createDmSchema,
   createInviteSchema,
+  createPollSchema,
   createRoomSchema,
   draftSchema,
   inviteMembersSchema,
@@ -1089,6 +1090,50 @@ export function createRoomsRouter({
       }
 
       res.status(200).json({ ok: true, id: scheduledId });
+    })
+  );
+
+  // POST /api/rooms/:id/polls — create a poll message
+  router.post(
+    '/:id/polls',
+    asyncHandler(async (req, res) => {
+      const parsed = createPollSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid poll', 400);
+      }
+
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      assertCan(req.user, 'message.send', { room });
+
+      const { question, options, multiple, anonymous, closesAt } = parsed.data;
+      const expiresAt =
+        room.disappearingTtlSeconds > 0
+          ? new Date(Date.now() + room.disappearingTtlSeconds * 1000)
+          : null;
+
+      const doc = await Message.create({
+        room: room._id,
+        sender: req.user.id,
+        senderName: req.user.username,
+        kind: 'poll',
+        text: question,
+        poll: {
+          question,
+          options: options.map((text, idx) => ({ id: `opt_${idx + 1}`, text, votes: [] })),
+          multiple,
+          anonymous,
+          closesAt: closesAt ? new Date(closesAt) : null,
+        },
+        expiresAt,
+      });
+
+      const serialized = serializeMessage(doc);
+      const io = req.app.locals.io;
+      if (io) {
+        io.to(`room:${room._id.toString()}`).emit('message:new', serialized);
+      }
+
+      res.status(201).json({ message: serialized });
     })
   );
 

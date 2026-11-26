@@ -61,6 +61,34 @@ const messageSchema = new mongoose.Schema(
       trim: true,
       maxlength: 2000,
     },
+    kind: {
+      type: String,
+      enum: ['text', 'poll'],
+      default: 'text',
+    },
+    poll: {
+      type: {
+        question: { type: String, required: true, trim: true, maxlength: 200 },
+        options: [
+          {
+            id: { type: String, required: true },
+            text: { type: String, required: true, trim: true, maxlength: 80 },
+            votes: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+            _id: false,
+          },
+        ],
+        multiple: { type: Boolean, default: false },
+        anonymous: { type: Boolean, default: false },
+        closesAt: { type: Date, default: null },
+        closedAt: { type: Date, default: null },
+      },
+      default: null,
+      _id: false,
+    },
+    mentions: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+      default: [],
+    },
     readBy: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -117,6 +145,28 @@ export function serializeReactions(reactions = []) {
     }));
 }
 
+export function serializePoll(poll) {
+  if (!poll) return null;
+  const toIso = (d) => (d instanceof Date ? d.toISOString() : d || null);
+  const isClosed = Boolean(
+    poll.closedAt || (poll.closesAt && new Date(poll.closesAt).getTime() <= Date.now())
+  );
+  return {
+    question: poll.question,
+    multiple: Boolean(poll.multiple),
+    anonymous: Boolean(poll.anonymous),
+    closesAt: toIso(poll.closesAt),
+    closedAt: toIso(poll.closedAt),
+    isClosed,
+    options: (poll.options || []).map((o) => ({
+      id: o.id,
+      text: o.text,
+      count: Array.isArray(o.votes) ? o.votes.length : 0,
+      ...(poll.anonymous ? {} : { votes: (o.votes || []).map((id) => id.toString()) }),
+    })),
+  };
+}
+
 export function serializeMessage(doc) {
   const isDeleted = Boolean(doc.deletedAt);
   const toIso = (d) => (d instanceof Date ? d.toISOString() : d || null);
@@ -126,7 +176,10 @@ export function serializeMessage(doc) {
     room: doc.room.toString(),
     sender: doc.sender.toString(),
     senderName: doc.senderName,
+    kind: doc.kind || 'text',
     text: isDeleted ? '' : doc.text,
+    poll: isDeleted ? null : serializePoll(doc.poll),
+    mentions: isDeleted ? [] : (doc.mentions || []).map((id) => id.toString()),
     readBy: (doc.readBy || []).map((id) => id.toString()),
     reactions: isDeleted ? [] : serializeReactions(doc.reactions),
     attachments: isDeleted

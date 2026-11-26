@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import RichMessageText from './RichMessageText.jsx';
 import styles from './MessageItem.module.css';
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -200,7 +201,7 @@ export default function MessageItem({
             </div>
           ) : (
             <>
-              {text && <p className={styles.text}>{text}</p>}
+              {text && <div className={styles.text}><RichMessageText text={text} /></div>}
               {attachments.length > 0 && (
                 <div className={styles.attachments}>
                   {attachments.map((att) => {

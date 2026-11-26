@@ -558,6 +558,18 @@ export function useChat() {
       );
     };
 
+    const handlePollUpdated = ({ roomId, messageId, poll }) => {
+      if (!roomId || !messageId || !poll) return;
+      setMessagesByRoom((prev) => {
+        const list = prev[roomId];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [roomId]: list.map((m) => (m._id === messageId ? { ...m, poll } : m)),
+        };
+      });
+    };
+
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
@@ -582,6 +594,7 @@ export function useChat() {
     socket.on('room:pins_updated', handlePinsUpdated);
     socket.on('user:status_updated', handleUserStatusUpdated);
     socket.on('room:updated', handleRoomUpdated);
+    socket.on('poll:updated', handlePollUpdated);
 
     return () => {
       socket.io.off('reconnect_attempt', handleReconnectAttempt);
@@ -931,6 +944,26 @@ export function useChat() {
     });
   }, []);
 
+  const votePoll = useCallback(async (messageId, optionIds) => {
+    return apiFetch(`/api/messages/${messageId}/vote`, {
+      method: 'POST',
+      body: JSON.stringify({ optionIds }),
+    });
+  }, []);
+
+  const closePoll = useCallback(async (messageId) => {
+    return apiFetch(`/api/messages/${messageId}/poll/close`, {
+      method: 'POST',
+    });
+  }, []);
+
+  const createPoll = useCallback(async (roomId, pollPayload) => {
+    return apiFetch(`/api/rooms/${roomId}/polls`, {
+      method: 'POST',
+      body: JSON.stringify(pollPayload),
+    });
+  }, []);
+
   const requestSummary = useCallback(async (roomId, { force = false } = {}) => {
     if (!roomId) return;
     setSummaryLoadingByRoom((prev) => ({ ...prev, [roomId]: true }));
@@ -1010,6 +1043,9 @@ export function useChat() {
     loadStarredMessages,
     setNotificationLevel,
     updateUserStatus,
+    votePoll,
+    closePoll,
+    createPoll,
     requestSummary,
     dismissSummary,
   };

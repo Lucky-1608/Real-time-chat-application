@@ -73,6 +73,7 @@ export const messageSendSchema = z
     text: z.string().trim().max(2000, 'Message cannot exceed 2000 characters').optional().default(''),
     roomId: objectIdSchema.optional(),
     attachments: z.array(attachmentSchema).max(4, 'Maximum 4 attachments per message').optional().default([]),
+    mentions: z.array(objectIdSchema).max(20).optional().default([]),
   })
   .refine((data) => data.text.length > 0 || data.attachments.length > 0, {
     message: 'Message cannot be empty',
@@ -256,4 +257,19 @@ export const userStatusSchema = z.object({
 export const scheduleMessageSchema = z.object({
   text: z.string().trim().min(1, 'Message cannot be empty').max(2000, 'Message cannot exceed 2000 characters'),
   sendAt: z.string().datetime({ message: 'Invalid sendAt timestamp' }),
+});
+
+export const createPollSchema = z.object({
+  question: z.string().trim().min(1, 'Question is required').max(200, 'Question max 200 chars'),
+  options: z
+    .array(z.string().trim().min(1, 'Option cannot be empty').max(80, 'Option max 80 chars'))
+    .min(2, 'At least 2 options required')
+    .max(6, 'Maximum 6 options allowed'),
+  multiple: z.boolean().optional().default(false),
+  anonymous: z.boolean().optional().default(false),
+  closesAt: z.string().datetime().nullable().optional().default(null),
+});
+
+export const votePollSchema = z.object({
+  optionIds: z.array(z.string().min(1)).min(1, 'Select at least one option').max(6),
 });

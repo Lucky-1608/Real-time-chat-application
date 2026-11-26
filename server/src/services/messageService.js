@@ -16,6 +16,7 @@ export async function deliverMessage({
   username,
   text,
   attachments = [],
+  mentions = [],
   scheduledKey = undefined,
   io = null,
   presence = null,
@@ -26,6 +27,17 @@ export async function deliverMessage({
 
   if (!can({ id: userId }, 'message.send', { room })) {
     return { ok: false, error: 'You do not have permission to send messages here' };
+  }
+
+  // Validate structured @mentions against current room membership
+  const uniqueMentions = [...new Set(mentions)];
+  if (uniqueMentions.length > 0) {
+    const memberIds = new Set((room.members || []).map((m) => m.user.toString()));
+    for (const mid of uniqueMentions) {
+      if (!memberIds.has(mid)) {
+        return { ok: false, error: 'Cannot mention a user who is not a member of this room' };
+      }
+    }
   }
 
   if (room.type === 'dm') {
@@ -65,6 +77,7 @@ export async function deliverMessage({
       sender: userId,
       senderName: username,
       text,
+      mentions: uniqueMentions,
       attachments: attachments.map((att) => ({ ...att, scanStatus: 'pending' })),
       expiresAt,
       ...(scheduledKey ? { scheduledKey } : {}),
@@ -116,6 +129,7 @@ export async function deliverMessage({
             return false;
           }
           if (m.notificationLevel === 'mentions') {
+            if (uniqueMentions.includes(m.user.toString())) return true;
             const mentionPattern = new RegExp(`@${u.username}\\b`, 'i');
             return mentionPattern.test(text || '');
           }
