@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import mongoose from 'mongoose';
+import { ALLOWED_REACTIONS } from '../models/Message.js';
 
 export const objectIdSchema = z
   .string()
@@ -100,4 +101,12 @@ export const messageDeleteSchema = z.object({
 
 export const roomChangesQuerySchema = z.object({
   since: z.string().datetime({ message: 'Invalid since cursor' }),
+});
+
+export const reactionToggleSchema = z.object({
+  roomId: objectIdSchema,
+  messageId: z.string().refine((val) => mongoose.isValidObjectId(val), {
+    message: 'Invalid message ID',
+  }),
+  emoji: z.enum(ALLOWED_REACTIONS, { message: 'Unsupported reaction emoji' }),
 });

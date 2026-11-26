@@ -26,6 +26,7 @@ export default function MessageList({
   onRetry,
   onEdit,
   onDelete,
+  onToggleReaction,
   onMarkRead,
 }) {
   const {
@@ -183,6 +184,7 @@ export default function MessageList({
               <MessageItem
                 key={msg._id}
                 message={msg}
+                currentUserId={currentUserId}
                 isOwn={msg.sender === currentUserId}
                 isRoomOwner={isRoomOwner}
                 isGrouped={isConsecutiveMessage(prev, msg)}
@@ -190,6 +192,7 @@ export default function MessageList({
                 onRetry={onRetry}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onToggleReaction={onToggleReaction}
                 itemRef={(el) => setItemRef(msg._id, el)}
               />
             );

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import styles from './MessageItem.module.css';
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
+const ALLOWED_REACTIONS = ['👍', '❤️', '😂', '🎉', '😮', '🙏'];
 
 function formatTime(isoString) {
   if (!isoString) return '';
@@ -12,6 +13,7 @@ function formatTime(isoString) {
 
 export default function MessageItem({
   message,
+  currentUserId,
   isOwn,
   isRoomOwner = false,
   isGrouped,
@@ -19,6 +21,7 @@ export default function MessageItem({
   onRetry,
   onEdit,
   onDelete,
+  onToggleReaction,
   itemRef,
 }) {
   const [showReaders, setShowReaders] = useState(false);
@@ -39,6 +42,7 @@ export default function MessageItem({
     status,
     error,
     readBy = [],
+    reactions = [],
   } = message;
 
   const isDeleted = Boolean(deletedAt);
@@ -113,8 +117,21 @@ export default function MessageItem({
       {!isOwn && !isGrouped && <span className={styles.sender}>{senderName}</span>}
 
       <div className={styles.bubbleWrap}>
-        {(canEdit || canDelete) && !isEditing && (
+        {!isDeleted && isConfirmed && !isEditing && (
           <div className={styles.actions}>
+            <div className={styles.reactionPicker} role="group" aria-label="Add reaction">
+              {ALLOWED_REACTIONS.map((emoji) => (
+                <button
+                  key={emoji}
+                  type="button"
+                  className={styles.emojiPickBtn}
+                  onClick={() => onToggleReaction?.(room, _id, emoji)}
+                  aria-label={`React with ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+            </div>
             {canEdit && (
               <button type="button" className={styles.actionBtn} onClick={startEdit}>
                 Edit
@@ -201,6 +218,29 @@ export default function MessageItem({
           </div>
         </div>
       </div>
+
+      {!isDeleted && reactions.length > 0 && (
+        <div className={styles.reactionsBar}>
+          {reactions.map((r) => {
+            const reactedByMe = r.users.includes(currentUserId);
+            const names = r.users.map((id) => userDirectory[id] || 'User').join(', ');
+            return (
+              <button
+                key={r.emoji}
+                type="button"
+                className={`${styles.reactionPill} ${reactedByMe ? styles.reactionMine : ''}`}
+                title={`${r.emoji} — ${names}`}
+                aria-label={`${r.emoji} ${r.users.length} — ${names}`}
+                aria-pressed={reactedByMe}
+                onClick={() => onToggleReaction?.(room, _id, r.emoji)}
+              >
+                <span>{r.emoji}</span>
+                <span className={styles.reactionCount}>{r.users.length}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {confirmDelete && (
         <div className={styles.confirmRow} role="alert">

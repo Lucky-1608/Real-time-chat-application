@@ -44,6 +44,7 @@ export default function ChatWindow() {
     markMessagesRead,
     editMessage,
     deleteMessage,
+    toggleReaction,
     createRoom,
     startDm,
     joinPublicRoom,
@@ -124,6 +125,7 @@ export default function ChatWindow() {
               onRetry={retryMessage}
               onEdit={editMessage}
               onDelete={deleteMessage}
+              onToggleReaction={toggleReaction}
               onMarkRead={markMessagesRead}
             />
             <TypingIndicator typingUsers={typingUsers} />

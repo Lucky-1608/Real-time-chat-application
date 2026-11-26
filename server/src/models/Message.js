@@ -1,5 +1,24 @@
 import mongoose from 'mongoose';
 
+export const ALLOWED_REACTIONS = ['👍', '❤️', '😂', '🎉', '😮', '🙏'];
+
+const reactionSchema = new mongoose.Schema(
+  {
+    emoji: {
+      type: String,
+      enum: ALLOWED_REACTIONS,
+      required: true,
+    },
+    users: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+      },
+    ],
+  },
+  { _id: false }
+);
+
 const messageSchema = new mongoose.Schema(
   {
     room: {
@@ -31,6 +50,10 @@ const messageSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    reactions: {
+      type: [reactionSchema],
+      default: [],
+    },
     editedAt: {
       type: Date,
       default: null,
@@ -53,6 +76,15 @@ const messageSchema = new mongoose.Schema(
 messageSchema.index({ room: 1, createdAt: -1 });
 messageSchema.index({ room: 1, updatedAt: -1 });
 
+export function serializeReactions(reactions = []) {
+  return reactions
+    .filter((r) => Array.isArray(r.users) && r.users.length > 0)
+    .map((r) => ({
+      emoji: r.emoji,
+      users: r.users.map((id) => id.toString()),
+    }));
+}
+
 export function serializeMessage(doc) {
   const isDeleted = Boolean(doc.deletedAt);
   const toIso = (d) => (d instanceof Date ? d.toISOString() : d || null);
@@ -64,6 +96,7 @@ export function serializeMessage(doc) {
     senderName: doc.senderName,
     text: isDeleted ? '' : doc.text,
     readBy: (doc.readBy || []).map((id) => id.toString()),
+    reactions: isDeleted ? [] : serializeReactions(doc.reactions),
     editedAt: isDeleted ? null : toIso(doc.editedAt),
     deletedAt: toIso(doc.deletedAt),
     createdAt: toIso(doc.createdAt),

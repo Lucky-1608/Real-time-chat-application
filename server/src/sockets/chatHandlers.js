@@ -1,4 +1,5 @@
-import Message, { serializeMessage } from '../models/Message.js';
+import mongoose from 'mongoose';
+import Message, { serializeMessage, serializeReactions } from '../models/Message.js';
 import Room from '../models/Room.js';
 import {
   messageDeleteSchema,
@@ -6,6 +7,7 @@ import {
   messageReadSchema,
   messageSendSchema,
   objectIdSchema,
+  reactionToggleSchema,
 } from '../utils/validators.js';
 import { ensureGeneralRoom } from '../services/roomMigration.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
@@ -202,6 +204,94 @@ export function registerChatHandlers(io, socket, presence) {
       }
       console.error('[socket] Failed to delete message:', err);
       return respond({ ok: false, error: 'Failed to delete message' });
+    }
+  });
+
+  socket.on('reaction:toggle', async (payload, ack) => {
+    const respond = typeof ack === 'function' ? ack : () => {};
+
+    if (isSocketRateLimited(sendTimestamps, Date.now())) {
+      return respond({ ok: false, error: 'Rate limit exceeded. Please slow down.' });
+    }
+
+    const parsed = reactionToggleSchema.safeParse(payload);
+    if (!parsed.success) {
+      return respond({
+        ok: false,
+        error: parsed.error.issues[0]?.message || 'Invalid reaction payload',
+      });
+    }
+
+    const { roomId, messageId, emoji } = parsed.data;
+
+    try {
+      const { room } = await getRoomIfMember(roomId, userId);
+      const msg = await Message.findOne(
+        { _id: messageId, room: room._id },
+        { deletedAt: 1, reactions: 1 }
+      ).lean();
+
+      if (!msg) {
+        return respond({ ok: false, error: 'Message not found' });
+      }
+      if (msg.deletedAt) {
+        return respond({ ok: false, error: 'Cannot react to a deleted message' });
+      }
+
+      const userObjectId = new mongoose.Types.ObjectId(userId);
+      const existingEntry = (msg.reactions || []).find((r) => r.emoji === emoji);
+      const hasReacted = Boolean(
+        existingEntry?.users?.some((id) => id.toString() === userId)
+      );
+
+      // Atomic MongoDB array operators ($addToSet / $pull) execute under document-level
+      // locking so concurrent reactions from two users never overwrite each other.
+      if (hasReacted) {
+        await Message.updateOne(
+          { _id: messageId, room: room._id, 'reactions.emoji': emoji },
+          { $pull: { 'reactions.$.users': userObjectId } }
+        );
+        await Message.updateOne(
+          { _id: messageId, room: room._id },
+          { $pull: { reactions: { users: { $size: 0 } } } }
+        );
+      } else {
+        const addRes = await Message.updateOne(
+          { _id: messageId, room: room._id, 'reactions.emoji': emoji },
+          { $addToSet: { 'reactions.$.users': userObjectId } }
+        );
+
+        if (addRes.matchedCount === 0) {
+          const pushRes = await Message.updateOne(
+            { _id: messageId, room: room._id, 'reactions.emoji': { $ne: emoji } },
+            { $push: { reactions: { emoji, users: [userObjectId] } } }
+          );
+          // If a concurrent request just inserted this emoji entry, add our user to it.
+          if (pushRes.modifiedCount === 0) {
+            await Message.updateOne(
+              { _id: messageId, room: room._id, 'reactions.emoji': emoji },
+              { $addToSet: { 'reactions.$.users': userObjectId } }
+            );
+          }
+        }
+      }
+
+      const updated = await Message.findById(messageId, { reactions: 1 }).lean();
+      const reactions = serializeReactions(updated?.reactions || []);
+
+      io.to(`room:${room._id.toString()}`).emit('reaction:updated', {
+        roomId: room._id.toString(),
+        messageId,
+        reactions,
+      });
+
+      return respond({ ok: true, reactions });
+    } catch (err) {
+      if (err.isOperational) {
+        return respond({ ok: false, error: err.message });
+      }
+      console.error('[socket] Failed to toggle reaction:', err);
+      return respond({ ok: false, error: 'Failed to toggle reaction' });
     }
   });
 

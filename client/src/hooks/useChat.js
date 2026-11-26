@@ -327,7 +327,7 @@ export function useChat() {
           ...prev,
           [roomId]: list.map((m) =>
             m._id === messageId
-              ? { ...m, text: '', deletedAt, updatedAt: deletedAt, editedAt: null }
+              ? { ...m, text: '', deletedAt, updatedAt: deletedAt, editedAt: null, reactions: [] }
               : m
           ),
         };
@@ -342,6 +342,18 @@ export function useChat() {
             : r
         )
       );
+    };
+
+    const handleReactionUpdated = ({ roomId, messageId, reactions }) => {
+      if (!roomId || !messageId || !Array.isArray(reactions)) return;
+      setMessagesByRoom((prev) => {
+        const list = prev[roomId];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [roomId]: list.map((m) => (m._id === messageId ? { ...m, reactions } : m)),
+        };
+      });
     };
 
     const handlePresenceList = (users) => {
@@ -456,6 +468,7 @@ export function useChat() {
     socket.on('message:new', handleMessageNew);
     socket.on('message:updated', handleMessageUpdated);
     socket.on('message:deleted', handleMessageDeleted);
+    socket.on('reaction:updated', handleReactionUpdated);
     socket.on('presence:list', handlePresenceList);
     socket.on('typing:start', handleTypingStart);
     socket.on('typing:stop', handleTypingStop);
@@ -636,6 +649,11 @@ export function useChat() {
     });
   }, []);
 
+  const toggleReaction = useCallback((roomId, messageId, emoji) => {
+    if (!roomId || !messageId || !emoji || !socketRef.current?.connected) return;
+    socketRef.current.emit('reaction:toggle', { roomId, messageId, emoji });
+  }, []);
+
   // Room management actions
   const createRoom = useCallback(
     async ({ name, type, memberIds }) => {
@@ -728,6 +746,7 @@ export function useChat() {
     markMessagesRead,
     editMessage,
     deleteMessage,
+    toggleReaction,
     createRoom,
     startDm,
     joinPublicRoom,
