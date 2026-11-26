@@ -9,8 +9,10 @@ import { requireAuth, signToken } from '../middleware/auth.js';
 import { addUserToGeneralRoom } from '../services/roomMigration.js';
 import {
   createSession,
+  listUserSessions,
   revokeAllUserSessions,
   revokeSessionByToken,
+  revokeUserSessionById,
   rotateRefreshToken,
 } from '../services/sessionService.js';
 
@@ -45,9 +47,10 @@ function clearRefreshCookie(res) {
   });
 }
 
-function disconnectSessionSockets(io, sessionIds) {
+function disconnectSessionSockets(io, sessionIds, reason = 'Session revoked') {
   if (!io || !Array.isArray(sessionIds)) return;
   for (const sid of sessionIds) {
+    io.to(`session:${sid}`).emit('session:revoked', { reason });
     io.in(`session:${sid}`).disconnectSockets(true);
   }
 }
@@ -194,10 +197,41 @@ export function createAuthRouter({ rateLimiter } = {}) {
     '/logout-all',
     requireAuth,
     asyncHandler(async (req, res) => {
-      const revokedIds = await revokeAllUserSessions(req.user.id, 'logout_all');
-      clearRefreshCookie(res);
-      disconnectSessionSockets(req.app.locals.io, revokedIds);
+      const keepCurrent = Boolean(req.body?.keepCurrent);
+      const revokedIds = await revokeAllUserSessions(req.user.id, 'logout_all', {
+        exceptSessionId: keepCurrent ? req.user.sid : undefined,
+      });
+      if (!keepCurrent) {
+        clearRefreshCookie(res);
+      }
+      disconnectSessionSockets(req.app.locals.io, revokedIds, 'Signed out from all devices');
       res.status(200).json({ ok: true });
+    })
+  );
+
+  router.get(
+    '/sessions',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const sessions = await listUserSessions(req.user.id, req.user.sid);
+      res.status(200).json({ sessions });
+    })
+  );
+
+  router.delete(
+    '/sessions/:id',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const revoked = await revokeUserSessionById(req.params.id, req.user.id, 'revoked_by_user');
+      if (!revoked) {
+        throw new AppError('Session not found', 404);
+      }
+      const sid = revoked._id.toString();
+      if (sid === req.user.sid) {
+        clearRefreshCookie(res);
+      }
+      disconnectSessionSockets(req.app.locals.io, [sid], 'You were signed out');
+      res.status(200).json({ ok: true, id: sid });
     })
   );
 

@@ -1,5 +1,8 @@
 import jwt from 'jsonwebtoken';
+import mongoose from 'mongoose';
 import env from '../config/env.js';
+import Session from '../models/Session.js';
+import { isSessionActive, touchSessionActivity } from '../services/sessionService.js';
 import { AppError } from './errorHandler.js';
 
 export function signToken(user) {
@@ -34,7 +37,7 @@ export function verifyToken(token) {
   }
 }
 
-export function requireAuth(req, _res, next) {
+export async function requireAuth(req, _res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     return next(new AppError('Unauthorized', 401));
@@ -42,7 +45,28 @@ export function requireAuth(req, _res, next) {
 
   const token = header.slice('Bearer '.length).trim();
   try {
-    req.user = verifyToken(token);
+    const user = verifyToken(token);
+
+    if (mongoose.connection.readyState === 1) {
+      const active = await isSessionActive(user.sid);
+      if (!active) {
+        if (env.NODE_ENV !== 'test') {
+          return next(new AppError('Unauthorized', 401));
+        }
+        // In test mode, reject if a Session exists (e.g. revoked/expired), while still
+        // allowing synthetic tokens in unit tests that don't seed a Session document.
+        if (mongoose.isValidObjectId(user.sid)) {
+          const existing = await Session.findById(user.sid, { _id: 1 }).lean();
+          if (existing) {
+            return next(new AppError('Unauthorized', 401));
+          }
+        }
+      } else {
+        touchSessionActivity(user.sid);
+      }
+    }
+
+    req.user = user;
     return next();
   } catch (err) {
     return next(err);

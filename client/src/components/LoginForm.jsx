@@ -5,7 +5,7 @@ import styles from './LoginForm.module.css';
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,20}$/;
 
 export default function LoginForm() {
-  const { login, register } = useAuth();
+  const { login, register, signedOutNotice } = useAuth();
   const [mode, setMode] = useState('login');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -75,6 +75,12 @@ export default function LoginForm() {
             </p>
           </div>
         </div>
+
+        {signedOutNotice && (
+          <div className={styles.notice} role="status" aria-live="polite">
+            {signedOutNotice}
+          </div>
+        )}
 
         <form className={styles.form} onSubmit={handleSubmit} noValidate>
           <div className={styles.field}>

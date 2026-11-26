@@ -1,6 +1,29 @@
 import crypto from 'node:crypto';
+import mongoose from 'mongoose';
 import Session from '../models/Session.js';
 import env from '../config/env.js';
+
+const LAST_ACTIVE_THROTTLE_MS = 5 * 60 * 1000;
+const lastTouchedCache = new Map();
+
+export function parseDeviceFromUserAgent(ua = '') {
+  const s = String(ua || '');
+  let browser = 'Unknown browser';
+  if (/Edg\//i.test(s)) browser = 'Edge';
+  else if (/Chrome\//i.test(s) && !/Chromium/i.test(s)) browser = 'Chrome';
+  else if (/Firefox\//i.test(s)) browser = 'Firefox';
+  else if (/Safari\//i.test(s) && !/Chrome\//i.test(s)) browser = 'Safari';
+  else if (/node|supertest|axios|curl/i.test(s)) browser = 'API Client';
+
+  let os = 'Unknown OS';
+  if (/iPhone|iPad|iPod/i.test(s)) os = 'iOS';
+  else if (/Android/i.test(s)) os = 'Android';
+  else if (/Windows/i.test(s)) os = 'Windows';
+  else if (/Macintosh|Mac OS X/i.test(s)) os = 'macOS';
+  else if (/Linux/i.test(s)) os = 'Linux';
+
+  return `${browser} on ${os}`;
+}
 
 export function hashRefreshToken(rawToken) {
   return crypto.createHash('sha256').update(rawToken).digest('hex');
@@ -124,13 +147,77 @@ export async function revokeSessionByToken(rawToken, reason = 'logout') {
   );
 }
 
-export async function revokeAllUserSessions(userId, reason = 'logout_all') {
-  const active = await Session.find({ user: userId, revokedAt: null }, { _id: 1 }).lean();
-  await Session.updateMany(
-    { user: userId, revokedAt: null },
-    { $set: { revokedAt: new Date(), revokeReason: reason } }
-  );
+export async function revokeAllUserSessions(
+  userId,
+  reason = 'logout_all',
+  { exceptSessionId } = {}
+) {
+  const filter = { user: userId, revokedAt: null };
+  if (exceptSessionId && mongoose.isValidObjectId(exceptSessionId)) {
+    filter._id = { $ne: exceptSessionId };
+  }
+
+  const active = await Session.find(filter, { _id: 1 }).lean();
+  if (active.length === 0) return [];
+
+  await Session.updateMany(filter, { $set: { revokedAt: new Date(), revokeReason: reason } });
   return active.map((s) => s._id.toString());
+}
+
+export async function listUserSessions(userId, currentSid) {
+  const now = new Date();
+  const idleCutoff = new Date(now.getTime() - env.REFRESH_IDLE_DAYS * 86_400_000);
+
+  const docs = await Session.find(
+    {
+      user: userId,
+      revokedAt: null,
+      expiresAt: { $gt: now },
+      lastActiveAt: { $gt: idleCutoff },
+    },
+    {
+      currentTokenHash: 0,
+      previousTokenHash: 0,
+    }
+  )
+    .sort({ lastActiveAt: -1 })
+    .lean();
+
+  return docs.map((s) => ({
+    id: s._id.toString(),
+    device: parseDeviceFromUserAgent(s.userAgent),
+    ip: s.ip || 'Unknown',
+    createdAt: s.createdAt instanceof Date ? s.createdAt.toISOString() : s.createdAt,
+    lastActiveAt: s.lastActiveAt instanceof Date ? s.lastActiveAt.toISOString() : s.lastActiveAt,
+    expiresAt: s.expiresAt instanceof Date ? s.expiresAt.toISOString() : s.expiresAt,
+    isCurrent: s._id.toString() === currentSid?.toString(),
+  }));
+}
+
+export async function revokeUserSessionById(sessionId, userId, reason = 'revoked_by_user') {
+  if (!mongoose.isValidObjectId(sessionId)) return null;
+  return Session.findOneAndUpdate(
+    { _id: sessionId, user: userId, revokedAt: null },
+    { $set: { revokedAt: new Date(), revokeReason: reason } },
+    { new: true }
+  );
+}
+
+/**
+ * Throttles lastActiveAt updates to at most once every 5 minutes per session
+ * to avoid issuing a MongoDB write on every authenticated read request.
+ */
+export function touchSessionActivity(sessionId) {
+  if (!sessionId || !mongoose.isValidObjectId(sessionId)) return;
+  const key = sessionId.toString();
+  const now = Date.now();
+  const prev = lastTouchedCache.get(key) || 0;
+  if (now - prev < LAST_ACTIVE_THROTTLE_MS) return;
+
+  lastTouchedCache.set(key, now);
+  Session.updateOne({ _id: key, revokedAt: null }, { $set: { lastActiveAt: new Date(now) } }).catch(
+    () => {}
+  );
 }
 
 export async function isSessionActive(sessionId) {

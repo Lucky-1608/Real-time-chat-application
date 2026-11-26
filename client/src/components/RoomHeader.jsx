@@ -14,6 +14,7 @@ export default function RoomHeader({
   onStartDm,
   onSummarize,
   summaryLoading = false,
+  onOpenSecurity,
   onLogout,
 }) {
   const [membersOpen, setMembersOpen] = useState(false);
@@ -108,6 +109,15 @@ export default function RoomHeader({
           aria-label="Open online users"
         >
           Online ({onlineCount})
+        </button>
+
+        <button
+          type="button"
+          className={styles.actionBtn}
+          onClick={onOpenSecurity}
+          title="Manage active sessions"
+        >
+          Security
         </button>
 
         <button type="button" className={styles.logoutBtn} onClick={onLogout}>

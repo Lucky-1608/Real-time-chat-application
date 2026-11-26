@@ -12,11 +12,20 @@ const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   const [auth, setAuth] = useState(null);
   const [initializing, setInitializing] = useState(true);
+  const [signedOutNotice, setSignedOutNotice] = useState('');
 
   const clearAuth = useCallback(() => {
     setAccessToken(null);
     setAuth(null);
   }, []);
+
+  const forceSignOut = useCallback(
+    (message = 'You were signed out') => {
+      setSignedOutNotice(message);
+      clearAuth();
+    },
+    [clearAuth]
+  );
 
   const logout = useCallback(async () => {
     try {
@@ -80,6 +89,7 @@ export function AuthProvider({ children }) {
     });
     const nextAuth = { token: data.token, user: data.user };
     setAccessToken(data.token);
+    setSignedOutNotice('');
     setAuth(nextAuth);
     return nextAuth;
   }, []);
@@ -92,6 +102,7 @@ export function AuthProvider({ children }) {
     });
     const nextAuth = { token: data.token, user: data.user };
     setAccessToken(data.token);
+    setSignedOutNotice('');
     setAuth(nextAuth);
     return nextAuth;
   }, []);
@@ -101,13 +112,15 @@ export function AuthProvider({ children }) {
       token: auth?.token ?? null,
       user: auth?.user ?? null,
       initializing,
+      signedOutNotice,
       isAuthenticated: Boolean(auth?.token && auth?.user),
       login,
       register,
       logout,
+      forceSignOut,
       refreshSession,
     }),
-    [auth, initializing, login, register, logout, refreshSession]
+    [auth, initializing, signedOutNotice, login, register, logout, forceSignOut, refreshSession]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

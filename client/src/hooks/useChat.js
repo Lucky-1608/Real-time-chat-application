@@ -33,7 +33,7 @@ function sortRoomsByActivity(rooms) {
 }
 
 export function useChat() {
-  const { token, user, logout, refreshSession } = useAuth();
+  const { token, user, logout, forceSignOut, refreshSession } = useAuth();
   const socketRef = useRef(null);
   const hasConnectedOnceRef = useRef(false);
 
@@ -300,6 +300,10 @@ export function useChat() {
       }
     };
 
+    const handleSessionRevoked = (payload) => {
+      forceSignOut(payload?.reason || 'You were signed out');
+    };
+
     const handleMessageNew = (incoming) => {
       const rId = incoming.room;
       registerUsers([{ userId: incoming.sender, username: incoming.senderName }]);
@@ -485,6 +489,7 @@ export function useChat() {
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
     socket.on('connect_error', handleConnectError);
     socket.on('auth:expired', handleAuthExpired);
+    socket.on('session:revoked', handleSessionRevoked);
     socket.on('message:new', handleMessageNew);
     socket.on('message:updated', handleMessageUpdated);
     socket.on('message:deleted', handleMessageDeleted);
@@ -504,7 +509,7 @@ export function useChat() {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [user?.id, logout, refreshSession, registerUsers, selectRoom]);
+  }, [user?.id, logout, forceSignOut, refreshSession, registerUsers, selectRoom]);
 
   const loadOlderMessages = useCallback(async () => {
     const rId = activeRoomId;

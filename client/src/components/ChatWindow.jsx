@@ -13,6 +13,7 @@ import CreateRoomModal from './CreateRoomModal.jsx';
 import NewDMModal from './NewDMModal.jsx';
 import BrowseRoomsModal from './BrowseRoomsModal.jsx';
 import InviteMembersModal from './InviteMembersModal.jsx';
+import SecuritySettingsModal from './SecuritySettingsModal.jsx';
 import styles from './ChatWindow.module.css';
 
 export default function ChatWindow() {
@@ -114,6 +115,7 @@ export default function ChatWindow() {
             onStartDm={startDm}
             onSummarize={() => requestSummary(activeRoomId)}
             summaryLoading={summaryLoading}
+            onOpenSecurity={() => setActiveModal('security-settings')}
             onLogout={logout}
           />
 
@@ -193,6 +195,10 @@ export default function ChatWindow() {
         onClose={() => setActiveModal(null)}
         room={activeRoom}
         onInvite={inviteMembers}
+      />
+      <SecuritySettingsModal
+        isOpen={activeModal === 'security-settings'}
+        onClose={() => setActiveModal(null)}
       />
     </div>
   );
