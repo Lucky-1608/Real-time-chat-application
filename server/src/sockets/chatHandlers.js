@@ -82,6 +82,22 @@ export function registerChatHandlers(
         return respond({ ok: false, error: 'You do not have permission to send messages here' });
       }
 
+      if (room.type === 'dm') {
+        const other = room.members.find((m) => m.user.toString() !== userId);
+        if (other) {
+          const [senderDoc, otherDoc] = await Promise.all([
+            User.findById(userId, { blockedUsers: 1 }).lean(),
+            User.findById(other.user, { blockedUsers: 1 }).lean(),
+          ]);
+          const blocked =
+            (senderDoc?.blockedUsers || []).some((id) => id.toString() === other.user.toString()) ||
+            (otherDoc?.blockedUsers || []).some((id) => id.toString() === userId);
+          if (blocked) {
+            return respond({ ok: false, error: 'You cannot message this user' });
+          }
+        }
+      }
+
       const slowCheck = floodControl.checkSlowMode({
         roomId: roomIdStr,
         userId,
@@ -121,22 +137,40 @@ export function registerChatHandlers(
       // Notify online room members on their personal channel so sidebars update unread badges.
       if (presence) {
         const onlineRecipients = room.members.filter(
-          (m) => m.user.toString() !== userId && presence.isUserOnline(m.user)
+          (m) => !m.muted && m.user.toString() !== userId && presence.isUserOnline(m.user)
         );
-        await Promise.all(
-          onlineRecipients.map(async (member) => {
-            const since = member.lastReadAt || member.joinedAt || new Date(0);
-            const unreadCount = await Message.countDocuments({
-              room: room._id,
-              createdAt: { $gt: since },
-              sender: { $ne: member.user },
-            });
-            io.to(`user:${member.user.toString()}`).emit('room:unread', {
-              roomId: roomIdStr,
-              unreadCount,
-            });
-          })
-        );
+        if (onlineRecipients.length > 0) {
+          const recipientDocs = await User.find(
+            { _id: { $in: onlineRecipients.map((m) => m.user) } },
+            { mutedUsers: 1, blockedUsers: 1 }
+          ).lean();
+          const suppressedIds = new Set(
+            recipientDocs
+              .filter(
+                (u) =>
+                  (u.mutedUsers || []).some((id) => id.toString() === userId) ||
+                  (u.blockedUsers || []).some((id) => id.toString() === userId)
+              )
+              .map((u) => u._id.toString())
+          );
+
+          await Promise.all(
+            onlineRecipients
+              .filter((m) => !suppressedIds.has(m.user.toString()))
+              .map(async (member) => {
+                const since = member.lastReadAt || member.joinedAt || new Date(0);
+                const unreadCount = await Message.countDocuments({
+                  room: room._id,
+                  createdAt: { $gt: since },
+                  sender: { $ne: member.user },
+                });
+                io.to(`user:${member.user.toString()}`).emit('room:unread', {
+                  roomId: roomIdStr,
+                  unreadCount,
+                });
+              })
+          );
+        }
       }
 
       return respond({ ok: true, id: serialized._id });
@@ -363,6 +397,21 @@ export function registerChatHandlers(
     }
     try {
       const room = await resolveAuthorizedRoom(payload?.roomId, userId);
+      if (room.type === 'dm') {
+        const other = room.members.find((m) => m.user.toString() !== userId);
+        if (other) {
+          const [senderDoc, otherDoc] = await Promise.all([
+            User.findById(userId, { blockedUsers: 1 }).lean(),
+            User.findById(other.user, { blockedUsers: 1 }).lean(),
+          ]);
+          const blocked =
+            (senderDoc?.blockedUsers || []).some((id) => id.toString() === other.user.toString()) ||
+            (otherDoc?.blockedUsers || []).some((id) => id.toString() === userId);
+          if (blocked) {
+            return respond({ ok: true });
+          }
+        }
+      }
       const roomIdStr = room._id.toString();
       socket.to(`room:${roomIdStr}`).emit('typing:start', { roomId: roomIdStr, userId, username });
       return respond({ ok: true });
@@ -401,6 +450,22 @@ export function registerChatHandlers(
 
       if (!can(socket.data.user, 'message.send', { room })) {
         return respond({ ok: false, error: 'You do not have permission to send messages here' });
+      }
+
+      if (room.type === 'dm') {
+        const other = room.members.find((m) => m.user.toString() !== userId);
+        if (other) {
+          const [senderDoc, otherDoc] = await Promise.all([
+            User.findById(userId, { blockedUsers: 1 }).lean(),
+            User.findById(other.user, { blockedUsers: 1 }).lean(),
+          ]);
+          const blocked =
+            (senderDoc?.blockedUsers || []).some((id) => id.toString() === other.user.toString()) ||
+            (otherDoc?.blockedUsers || []).some((id) => id.toString() === userId);
+          if (blocked) {
+            return respond({ ok: false, error: 'You cannot message this user' });
+          }
+        }
       }
 
       await Promise.all([

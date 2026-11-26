@@ -1,19 +1,23 @@
+import crypto from 'node:crypto';
 import { Router } from 'express';
 import mongoose from 'mongoose';
 import Room, { makeDmKey } from '../models/Room.js';
 import User from '../models/User.js';
 import Message from '../models/Message.js';
+import InviteLink from '../models/InviteLink.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import {
   changeMemberRoleSchema,
   createDmSchema,
+  createInviteSchema,
   createRoomSchema,
   inviteMembersSchema,
   messagesQuerySchema,
   publicRoomsQuerySchema,
   roomChangesQuerySchema,
+  roomMuteSchema,
   roomSummarySchema,
   updateRoomSchema,
 } from '../utils/validators.js';
@@ -190,9 +194,20 @@ export function createRoomsRouter({
         throw new AppError('Cannot start a direct message with yourself', 400);
       }
 
-      const targetUser = await User.findById(targetUserId, { _id: 1 }).lean();
+      const targetUser = await User.findById(targetUserId, { _id: 1, blockedUsers: 1 }).lean();
       if (!targetUser) {
         throw new AppError('User not found', 404);
+      }
+
+      const myUser = await User.findById(myUserId, { createdAt: 1, blockedUsers: 1 }).lean();
+      const targetBlockedMe = (targetUser.blockedUsers || []).some(
+        (id) => id.toString() === myUserId
+      );
+      const iBlockedTarget = (myUser?.blockedUsers || []).some(
+        (id) => id.toString() === targetUserId
+      );
+      if (targetBlockedMe || iBlockedTarget) {
+        throw new AppError('Cannot start a direct message with this user', 403);
       }
 
       const dmKey = makeDmKey(myUserId, targetUserId);
@@ -204,7 +219,6 @@ export function createRoomsRouter({
         return res.status(200).json({ room: serializeRoom(existing, myUserId), created: false });
       }
 
-      const myUser = await User.findById(myUserId, { createdAt: 1 }).lean();
       floodControl.assertNewAccountAllowed(myUser?.createdAt, 'starting direct messages');
 
       const myRoomCount = await Room.countDocuments({ 'members.user': myUserId });
@@ -268,20 +282,37 @@ export function createRoomsRouter({
       }
 
       const userId = req.user.id;
+      if ((room.bannedUsers || []).some((b) => b.user.toString() === userId)) {
+        throw new AppError('You are banned from this room', 403);
+      }
+
       const alreadyMember = room.members.some((m) => m.user.toString() === userId);
 
       if (!alreadyMember) {
-        if (room.members.length >= MAX_MEMBERS_PER_ROOM) {
-          throw new AppError(`Room has reached the ${MAX_MEMBERS_PER_ROOM} member limit`, 400);
-        }
         const myRoomCount = await Room.countDocuments({ 'members.user': userId });
         if (myRoomCount >= MAX_ROOMS_PER_USER) {
           throw new AppError(`Room limit reached (max ${MAX_ROOMS_PER_USER} rooms per user)`, 400);
         }
 
         const now = new Date();
-        room.members.push({ user: userId, role: 'member', joinedAt: now, lastReadAt: now });
-        await room.save();
+        const updated = await Room.findOneAndUpdate(
+          {
+            _id: room._id,
+            'members.user': { $ne: userId },
+            $expr: {
+              $lt: [{ $size: '$members' }, { $ifNull: ['$maxMembers', MAX_MEMBERS_PER_ROOM] }],
+            },
+          },
+          {
+            $push: {
+              members: { user: userId, role: 'member', joinedAt: now, lastReadAt: now },
+            },
+          },
+          { new: true }
+        );
+        if (!updated) {
+          throw new AppError('Room has reached its member limit', 400);
+        }
       }
 
       const populated = await Room.findById(room._id)
@@ -424,9 +455,28 @@ export function createRoomsRouter({
         }
         room.name = parsed.data.name;
       }
-      if (parsed.data.slowModeSeconds !== undefined) {
+      if (
+        parsed.data.slowModeSeconds !== undefined ||
+        parsed.data.announcementMode !== undefined ||
+        parsed.data.maxMembers !== undefined ||
+        parsed.data.allowInviteLinks !== undefined
+      ) {
         assertCan(req.user, 'room.settings', { room });
-        room.slowModeSeconds = parsed.data.slowModeSeconds;
+        if (parsed.data.slowModeSeconds !== undefined) {
+          room.slowModeSeconds = parsed.data.slowModeSeconds;
+        }
+        if (parsed.data.announcementMode !== undefined) {
+          room.announcementMode = parsed.data.announcementMode;
+        }
+        if (parsed.data.maxMembers !== undefined) {
+          if (parsed.data.maxMembers < room.members.length) {
+            throw new AppError('maxMembers cannot be less than current member count', 400);
+          }
+          room.maxMembers = parsed.data.maxMembers;
+        }
+        if (parsed.data.allowInviteLinks !== undefined) {
+          room.allowInviteLinks = parsed.data.allowInviteLinks;
+        }
       }
 
       await room.save();
@@ -439,6 +489,212 @@ export function createRoomsRouter({
           roomId: room._id.toString(),
           name: room.name,
           slowModeSeconds: room.slowModeSeconds,
+          announcementMode: room.announcementMode,
+          maxMembers: room.maxMembers,
+          allowInviteLinks: room.allowInviteLinks,
+        });
+      }
+
+      res.status(200).json({ room: serialized });
+    })
+  );
+
+  // PATCH /api/rooms/:id/mute — mute/unmute notifications for a room
+  router.patch(
+    '/:id/mute',
+    asyncHandler(async (req, res) => {
+      const parsed = roomMuteSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError('Invalid mute payload', 400);
+      }
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      await Room.updateOne(
+        { _id: room._id, 'members.user': req.user.id },
+        { $set: { 'members.$.muted': parsed.data.muted } }
+      );
+      res.status(200).json({ ok: true, roomId: room._id.toString(), muted: parsed.data.muted });
+    })
+  );
+
+  // POST /api/rooms/:id/invites — create a revocable, expiring invite link
+  router.post(
+    '/:id/invites',
+    asyncHandler(async (req, res) => {
+      const parsed = createInviteSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid invite options', 400);
+      }
+
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      if (room.type === 'dm') {
+        throw new AppError('Direct messages do not support invite links', 400);
+      }
+      if (room.allowInviteLinks === false) {
+        throw new AppError('Invite links are disabled for this room', 403);
+      }
+      assertCan(req.user, 'invite.manage', { room });
+
+      const rawToken = crypto.randomBytes(24).toString('base64url');
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const expiresAt = new Date(Date.now() + parsed.data.expiresInHours * 3600 * 1000);
+
+      const invite = await InviteLink.create({
+        room: room._id,
+        createdBy: req.user.id,
+        tokenHash,
+        expiresAt,
+        maxUses: parsed.data.maxUses,
+      });
+
+      await audit('invite.create', {
+        actor: req.user.id,
+        targetType: 'invite',
+        targetId: invite._id.toString(),
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+        metadata: { roomId: room._id.toString(), maxUses: parsed.data.maxUses },
+      });
+
+      res.status(201).json({
+        invite: {
+          id: invite._id.toString(),
+          roomId: room._id.toString(),
+          expiresAt: invite.expiresAt.toISOString(),
+          maxUses: invite.maxUses,
+          uses: invite.uses,
+        },
+        token: rawToken,
+      });
+    })
+  );
+
+  // GET /api/rooms/:id/invites — list active invite links (no hashes returned)
+  router.get(
+    '/:id/invites',
+    asyncHandler(async (req, res) => {
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      assertCan(req.user, 'invite.manage', { room });
+
+      const invites = await InviteLink.find(
+        { room: room._id, revokedAt: null },
+        { tokenHash: 0 }
+      )
+        .sort({ createdAt: -1 })
+        .lean();
+
+      res.status(200).json({ invites });
+    })
+  );
+
+  // DELETE /api/rooms/:id/invites/:inviteId — revoke an invite link
+  router.delete(
+    '/:id/invites/:inviteId',
+    asyncHandler(async (req, res) => {
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      assertCan(req.user, 'invite.manage', { room });
+
+      const inviteId = parseRoomId(req.params.inviteId);
+      const invite = await InviteLink.findOneAndUpdate(
+        { _id: inviteId, room: room._id, revokedAt: null },
+        { $set: { revokedAt: new Date() } },
+        { new: true }
+      );
+      if (!invite) {
+        throw new AppError('Invite link not found', 404);
+      }
+
+      await audit('invite.revoke', {
+        actor: req.user.id,
+        targetType: 'invite',
+        targetId: invite._id.toString(),
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+        metadata: { roomId: room._id.toString() },
+      });
+
+      res.status(200).json({ ok: true });
+    })
+  );
+
+  // POST /api/rooms/invites/:token/redeem — atomically redeem an invite link
+  router.post(
+    '/invites/:token/redeem',
+    asyncHandler(async (req, res) => {
+      const rawToken = String(req.params.token || '');
+      if (!rawToken || rawToken.length < 16) {
+        throw new AppError('Invalid invite link', 400);
+      }
+
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      const now = new Date();
+
+      const invite = await InviteLink.findOneAndUpdate(
+        {
+          tokenHash,
+          revokedAt: null,
+          $and: [
+            { $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] },
+            { $or: [{ maxUses: null }, { $expr: { $lt: ['$uses', '$maxUses'] } }] },
+          ],
+        },
+        { $inc: { uses: 1 } },
+        { new: true }
+      );
+
+      if (!invite) {
+        throw new AppError('Invite link is invalid, expired, or has reached its maximum uses', 400);
+      }
+
+      const room = await Room.findById(invite.room);
+      if (!room || room.allowInviteLinks === false) {
+        await InviteLink.updateOne({ _id: invite._id }, { $inc: { uses: -1 } });
+        throw new AppError('Invite links are not enabled for this room', 403);
+      }
+
+      const userId = req.user.id;
+      if ((room.bannedUsers || []).some((b) => b.user.toString() === userId)) {
+        await InviteLink.updateOne({ _id: invite._id }, { $inc: { uses: -1 } });
+        throw new AppError('You are banned from this room', 403);
+      }
+
+      const alreadyMember = room.members.some((m) => m.user.toString() === userId);
+      if (!alreadyMember) {
+        const updated = await Room.findOneAndUpdate(
+          {
+            _id: room._id,
+            'members.user': { $ne: userId },
+            $expr: {
+              $lt: [{ $size: '$members' }, { $ifNull: ['$maxMembers', MAX_MEMBERS_PER_ROOM] }],
+            },
+          },
+          {
+            $push: {
+              members: { user: userId, role: 'member', joinedAt: now, lastReadAt: now },
+            },
+          },
+          { new: true }
+        );
+        if (!updated) {
+          await InviteLink.updateOne({ _id: invite._id }, { $inc: { uses: -1 } });
+          throw new AppError('Room has reached its member limit', 400);
+        }
+      }
+
+      const populated = await Room.findById(room._id)
+        .populate('members.user', 'username')
+        .lean();
+      const serialized = serializeRoom(populated, userId);
+
+      const io = req.app.locals.io;
+      if (io && !alreadyMember) {
+        const roomIdStr = room._id.toString();
+        io.in(`user:${userId}`).socketsJoin(`room:${roomIdStr}`);
+        io.to(`user:${userId}`).emit('room:created', { room: serialized });
+        io.to(`room:${roomIdStr}`).emit('room:joined', {
+          roomId: roomIdStr,
+          user: { id: userId, username: req.user.username },
         });
       }
 

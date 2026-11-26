@@ -186,7 +186,40 @@ export const updateRoomSchema = z
       .regex(/^[a-zA-Z0-9 _-]+$/, 'Room name contains invalid characters')
       .optional(),
     slowModeSeconds: z.coerce.number().int().min(0).max(3600).optional(),
+    announcementMode: z.boolean().optional(),
+    maxMembers: z.coerce.number().int().min(2).max(500).optional(),
+    allowInviteLinks: z.boolean().optional(),
   })
-  .refine((d) => d.name !== undefined || d.slowModeSeconds !== undefined, {
-    message: 'At least one room setting must be provided',
-  });
+  .refine(
+    (d) =>
+      d.name !== undefined ||
+      d.slowModeSeconds !== undefined ||
+      d.announcementMode !== undefined ||
+      d.maxMembers !== undefined ||
+      d.allowInviteLinks !== undefined,
+    {
+      message: 'At least one room setting must be provided',
+    }
+  );
+
+export const roomMuteSchema = z.object({
+  muted: z.boolean(),
+});
+
+export const createInviteSchema = z.object({
+  expiresInHours: z.coerce.number().min(1).max(720).optional().default(24),
+  maxUses: z.coerce.number().int().min(1).max(1000).nullable().optional().default(null),
+});
+
+export const createReportSchema = z.object({
+  targetType: z.enum(['message', 'user']),
+  targetId: objectIdSchema,
+  roomId: objectIdSchema,
+  reason: z.enum(['spam', 'harassment', 'hate_speech', 'inappropriate', 'other']),
+  note: z.string().trim().max(1000).optional().default(''),
+});
+
+export const moderationActionSchema = z.object({
+  action: z.enum(['dismiss', 'delete_message', 'warn', 'kick', 'ban', 'suspend']),
+  note: z.string().trim().max(500).optional().default(''),
+});

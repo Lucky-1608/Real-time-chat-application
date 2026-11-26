@@ -16,6 +16,7 @@ export function serializeRoomMember(member) {
   return {
     user: userObj,
     role: member.role,
+    muted: Boolean(member.muted),
     joinedAt: member.joinedAt instanceof Date ? member.joinedAt.toISOString() : member.joinedAt,
     lastReadAt:
       member.lastReadAt instanceof Date ? member.lastReadAt.toISOString() : member.lastReadAt,
@@ -37,6 +38,10 @@ export function serializeRoom(roomDoc, currentUserId, { lastMessage = null, unre
     createdBy: roomDoc.createdBy ? roomDoc.createdBy.toString() : null,
     members,
     otherUser,
+    slowModeSeconds: roomDoc.slowModeSeconds || 0,
+    announcementMode: Boolean(roomDoc.announcementMode),
+    maxMembers: roomDoc.maxMembers || MAX_MEMBERS_PER_ROOM,
+    allowInviteLinks: roomDoc.allowInviteLinks !== false,
     lastMessage,
     unreadCount,
     createdAt:

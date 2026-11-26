@@ -27,7 +27,10 @@ export const PERMISSION_MATRIX = {
   'room.summary': ['owner', 'admin', 'moderator', 'member'],
   'room.delete': ['owner'],
   'member.invite': ['owner', 'admin', 'moderator'],
+  'invite.manage': ['owner', 'admin', 'moderator'],
   'member.remove': ['owner', 'admin'],
+  'member.ban': ['owner', 'admin'],
+  'report.moderate': ['owner', 'admin', 'moderator'],
   'role.change': ['owner', 'admin'],
   'ownership.transfer': ['owner'],
 };
@@ -59,6 +62,13 @@ export function can(user, action, { room = null, targetUser = null, targetRole =
   const actorRole = getMemberRole(room, userId);
   if (!actorRole || !allowedRoles.includes(actorRole)) {
     return false;
+  }
+
+  if (action === 'message.send') {
+    if (room?.announcementMode && !['owner', 'admin', 'moderator'].includes(actorRole)) {
+      return false;
+    }
+    return true;
   }
 
   if (action === 'message.edit_own' || action === 'message.delete_own') {

@@ -21,6 +21,10 @@ const memberSchema = new mongoose.Schema(
       type: Date,
       default: Date.now,
     },
+    muted: {
+      type: Boolean,
+      default: false,
+    },
   },
   { _id: false }
 );
@@ -65,6 +69,32 @@ const roomSchema = new mongoose.Schema(
       default: 0,
       min: 0,
       max: 3600,
+    },
+    announcementMode: {
+      type: Boolean,
+      default: false,
+    },
+    maxMembers: {
+      type: Number,
+      default: 100,
+      min: 2,
+      max: 500,
+    },
+    allowInviteLinks: {
+      type: Boolean,
+      default: true,
+    },
+    bannedUsers: {
+      type: [
+        {
+          user: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          bannedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+          reason: { type: String, default: '' },
+          bannedAt: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+      _id: false,
     },
   },
   {
