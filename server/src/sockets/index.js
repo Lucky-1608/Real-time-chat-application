@@ -10,6 +10,25 @@ import { createPresenceTracker } from './presence.js';
 
 const AUTH_EXPIRED_GRACE_MS = 30_000;
 const SESSION_SWEEP_INTERVAL_MS = 60_000;
+const MAX_HTTP_BUFFER_BYTES = 100 * 1024; // ~100 KB
+const MAX_SOCKETS_PER_USER = 10;
+const MAX_SOCKETS_PER_IP = 30;
+const ALL_EVENTS_WINDOW_MS = 10_000;
+const MAX_ALL_EVENTS_PER_WINDOW = 60;
+const MAX_UNKNOWN_EVENT_STRIKES = 3;
+
+const ALLOWED_SOCKET_EVENTS = new Set([
+  'message:send',
+  'message:edit',
+  'message:delete',
+  'message:read',
+  'reaction:toggle',
+  'typing:start',
+  'typing:stop',
+  'room:subscribe',
+  'auth:refresh',
+  'test:ping',
+]);
 
 /**
  * Attaches Socket.io to an existing Node http.Server so REST and WebSocket
@@ -17,14 +36,27 @@ const SESSION_SWEEP_INTERVAL_MS = 60_000;
  */
 export function attachSockets(httpServer, app = null, { storageService } = {}) {
   const io = new Server(httpServer, {
+    maxHttpBufferSize: MAX_HTTP_BUFFER_BYTES,
     cors: {
       origin: env.CLIENT_URL,
       methods: ['GET', 'POST'],
       credentials: true,
     },
+    allowRequest: (req, callback) => {
+      const origin = req.headers.origin;
+      if (origin && origin !== env.CLIENT_URL) {
+        return callback('Origin not allowed', false);
+      }
+      if (!origin && env.NODE_ENV === 'production') {
+        return callback('Origin required', false);
+      }
+      return callback(null, true);
+    },
   });
 
   const presence = createPresenceTracker();
+  const socketsByUser = new Map();
+  const socketsByIp = new Map();
 
   if (app) {
     app.locals.io = io;
@@ -40,8 +72,6 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
         if (!active && env.NODE_ENV !== 'test') {
           return next(new Error('unauthorized'));
         }
-        // In tests that construct synthetic tokens without a Session doc (e.g. foundation.test.js),
-        // only reject if a Session doc exists and is explicitly revoked.
         if (!active && env.NODE_ENV === 'test' && mongoose.isValidObjectId(user.sid)) {
           const existing = await Session.findById(user.sid, { revokedAt: 1 }).lean();
           if (existing?.revokedAt) {
@@ -50,11 +80,21 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
         }
       }
 
+      const userCount = socketsByUser.get(user.id) || 0;
+      if (userCount >= MAX_SOCKETS_PER_USER) {
+        return next(new Error('Too many open connections for this user'));
+      }
+
+      const ip = socket.handshake.address || 'unknown';
+      const ipCount = socketsByIp.get(ip) || 0;
+      if (ipCount >= MAX_SOCKETS_PER_IP) {
+        return next(new Error('Too many connections from this IP'));
+      }
+
       socket.data.user = user;
       socket.data.tokenExp = user.exp;
+      socket.data.clientIp = ip;
 
-      // Preload room memberships during handshake so socket.join runs synchronously
-      // in the connection handler before the client receives its 'connect' event.
       if (mongoose.connection.readyState === 1 && mongoose.isValidObjectId(user.id)) {
         const rooms = await Room.find({ 'members.user': user.id }, { _id: 1 }).lean();
         socket.data.initialRoomIds = rooms.map((r) => r._id.toString());
@@ -68,7 +108,6 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
     }
   });
 
-  // Periodic sweep disconnects any sockets whose session was revoked or expired.
   const sweepTimer = setInterval(async () => {
     if (mongoose.connection.readyState !== 1) return;
     try {
@@ -103,7 +142,13 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
 
   io.on('connection', (socket) => {
     const { id: userId, username, sid } = socket.data.user;
+    const clientIp = socket.data.clientIp || 'unknown';
     let expiryDisconnectTimer = null;
+    let unknownEventStrikes = 0;
+    const allEventTimestamps = [];
+
+    socketsByUser.set(userId, (socketsByUser.get(userId) || 0) + 1);
+    socketsByIp.set(clientIp, (socketsByIp.get(clientIp) || 0) + 1);
 
     socket.join(`user:${userId}`);
     socket.join(`session:${sid}`);
@@ -114,14 +159,42 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
     presence.addConnection(userId, username);
     io.emit('presence:list', presence.getOnlineUsers());
 
-    // Per-event middleware: enforce access-token expiration on every incoming socket event.
+    // Per-event middleware: enforce event allowlist, global rate limit, and token expiration.
     socket.use((packet, next) => {
       const [eventName, ...args] = packet;
+      const maybeAck = args[args.length - 1];
+      const rejectWithAck = (msg) => {
+        if (typeof maybeAck === 'function') {
+          maybeAck({ ok: false, error: msg });
+        }
+        return next(new Error(msg));
+      };
+
+      if (!ALLOWED_SOCKET_EVENTS.has(eventName)) {
+        unknownEventStrikes += 1;
+        if (unknownEventStrikes >= MAX_UNKNOWN_EVENT_STRIKES) {
+          socket.disconnect(true);
+        }
+        return rejectWithAck('Unknown socket event');
+      }
+
+      const nowMs = Date.now();
+      while (
+        allEventTimestamps.length > 0 &&
+        nowMs - allEventTimestamps[0] >= ALL_EVENTS_WINDOW_MS
+      ) {
+        allEventTimestamps.shift();
+      }
+      if (allEventTimestamps.length >= MAX_ALL_EVENTS_PER_WINDOW) {
+        return rejectWithAck('Socket event rate limit exceeded');
+      }
+      allEventTimestamps.push(nowMs);
+
       if (eventName === 'auth:refresh') {
         return next();
       }
 
-      const nowSec = Math.floor(Date.now() / 1000);
+      const nowSec = Math.floor(nowMs / 1000);
       if (socket.data.tokenExp && nowSec >= socket.data.tokenExp) {
         socket.emit('auth:expired');
         if (!expiryDisconnectTimer) {
@@ -130,18 +203,14 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
           }, AUTH_EXPIRED_GRACE_MS);
           expiryDisconnectTimer.unref?.();
         }
-        const maybeAck = args[args.length - 1];
-        if (typeof maybeAck === 'function') {
-          maybeAck({ ok: false, error: 'auth:expired' });
-        }
-        return next(new Error('auth:expired'));
+        return rejectWithAck('auth:expired');
       }
 
       return next();
     });
 
     socket.on('auth:refresh', async (payload, ack) => {
-      const respond = typeof ack === 'function' ? ack : () => {};
+      const respond = typeof ack === 'function' ? ack : () => { };
       try {
         const refreshed = verifyToken(payload?.token);
         if (refreshed.sid !== sid || refreshed.id !== userId) {
@@ -167,7 +236,6 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
 
     registerChatHandlers(io, socket, presence, { storageService });
 
-    // Clear active typing indicators in ALL rooms this socket belongs to on disconnect.
     socket.on('disconnecting', () => {
       for (const channel of socket.rooms) {
         if (channel.startsWith('room:')) {
@@ -182,13 +250,21 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
         clearTimeout(expiryDisconnectTimer);
         expiryDisconnectTimer = null;
       }
+
+      const uCount = (socketsByUser.get(userId) || 1) - 1;
+      if (uCount <= 0) socketsByUser.delete(userId);
+      else socketsByUser.set(userId, uCount);
+
+      const iCount = (socketsByIp.get(clientIp) || 1) - 1;
+      if (iCount <= 0) socketsByIp.delete(clientIp);
+      else socketsByIp.set(clientIp, iCount);
+
       const wentOffline = presence.removeConnection(userId);
       if (wentOffline) {
         io.emit('presence:list', presence.getOnlineUsers());
       }
     });
 
-    // Round-trip verification event for the WebSocket transport layer.
     socket.on('test:ping', (payload, ack) => {
       socket.broadcast.emit('test:pong', payload);
       if (typeof ack === 'function') {

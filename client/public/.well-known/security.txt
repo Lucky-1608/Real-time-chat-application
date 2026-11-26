@@ -1,0 +1,4 @@
+Contact: mailto:security@pulsechat.example.com
+Preferred-Languages: en
+Canonical: https://pulsechat.example.com/.well-known/security.txt
+Policy: https://github.com/example/pulsechat/blob/main/SECURITY.md

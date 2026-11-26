@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import {
   apiFetch,
+  ensureCsrfToken,
   refreshAccessToken,
   setAccessToken,
   setTokenRefreshedHandler,
@@ -29,11 +30,16 @@ export function AuthProvider({ children }) {
 
   const logout = useCallback(async () => {
     try {
+      const csrfToken = await ensureCsrfToken();
       await fetch(
         `${(import.meta.env.VITE_API_URL || 'http://localhost:4000').replace(/\/+$/, '')}/api/auth/logout`,
         {
           method: 'POST',
           credentials: 'include',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+          },
         }
       );
     } catch {

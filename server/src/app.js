@@ -2,8 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import mongoose from 'mongoose';
+import rateLimit from 'express-rate-limit';
 import env from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { sanitizeNoSql } from './middleware/sanitize.js';
 import { createApiRateLimiter, createAuthRateLimiter, createSummaryRateLimiter } from './middleware/rateLimit.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createMessagesRouter } from './routes/messages.js';
@@ -27,18 +30,54 @@ export function createApp({
   summaryService = defaultSummaryService,
   passwordService = defaultPasswordService,
 } = {}) {
+  mongoose.set('strictQuery', true);
   const app = express();
 
-  app.use(helmet());
+  app.use(
+    helmet({
+      contentSecurityPolicy: {
+        directives: {
+          defaultSrc: ["'none'"],
+          frameAncestors: ["'none'"],
+        },
+      },
+      referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+      hsts: { maxAge: 31_536_000, includeSubDomains: true },
+      frameguard: { action: 'deny' },
+    })
+  );
   app.use(
     cors({
       origin: env.CLIENT_URL,
       credentials: true,
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With'],
     })
   );
   // Cap JSON body size early to mitigate payload-flooding DoS attacks.
-  app.use(express.json({ limit: '16kb' }));
+  app.use(
+    express.json({
+      limit: '16kb',
+      type: ['application/json', 'application/csp-report'],
+    })
+  );
   app.use(cookieParser());
+  app.use(sanitizeNoSql);
+
+  const cspReportLimiter = rateLimit({
+    windowMs: 60_000,
+    max: 30,
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+
+  app.post('/api/csp-report', cspReportLimiter, (req, res) => {
+    const report = req.body?.['csp-report'] || req.body || {};
+    console.warn('[csp-report]', {
+      violatedDirective: report['violated-directive'] || report.effectiveDirective,
+      blockedUri: report['blocked-uri'] || report.blockedURL,
+    });
+    res.status(204).end();
+  });
 
   app.get('/health', (_req, res) => {
     res.status(200).json({

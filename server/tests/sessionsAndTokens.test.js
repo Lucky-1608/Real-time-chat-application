@@ -57,6 +57,26 @@ describe('Sub-phase 8.1: Access Tokens, Rotating Refresh Tokens & Sessions', () 
     return refreshCookie || '';
   }
 
+  async function getCsrfContext(app) {
+    const res = await request(app).get('/api/auth/csrf');
+    const cookie = (res.headers['set-cookie'] || [])
+      .find((c) => c.startsWith('csrfToken='))
+      .split(';')[0];
+    return {
+      csrfToken: res.body.csrfToken,
+      csrfCookie: cookie,
+    };
+  }
+
+  function postWithCsrf(app, path, refreshCookie, csrf) {
+    return request(app)
+      .post(path)
+      .set('Origin', 'http://localhost:5173')
+      .set('X-Requested-With', 'XMLHttpRequest')
+      .set('X-CSRF-Token', csrf.csrfToken)
+      .set('Cookie', [refreshCookie, csrf.csrfCookie]);
+  }
+
   it('sets httpOnly refresh cookie scoped to Path=/api/auth and returns 15m access token with sid', async () => {
     const { app } = await startServer();
     const reg = await request(app)
@@ -79,6 +99,7 @@ describe('Sub-phase 8.1: Access Tokens, Rotating Refresh Tokens & Sessions', () 
 
   it('rotates refresh token, supports 10s grace window, and revokes entire family on reuse outside grace window', async () => {
     const { app } = await startServer();
+    const csrf = await getCsrfContext(app);
     const reg = await request(app)
       .post('/api/auth/register')
       .send({ username: 'Alice', password: 'password123' });
@@ -87,30 +108,31 @@ describe('Sub-phase 8.1: Access Tokens, Rotating Refresh Tokens & Sessions', () 
     const rawCookie1 = cookie1.split(';')[0];
 
     // First refresh rotates token -> cookie2
-    const ref1 = await request(app).post('/api/auth/refresh').set('Cookie', rawCookie1);
+    const ref1 = await postWithCsrf(app, '/api/auth/refresh', rawCookie1, csrf);
     expect(ref1.status).toBe(200);
     expect(typeof ref1.body.token).toBe('string');
     const cookie2 = extractRefreshCookie(ref1).split(';')[0];
     expect(cookie2).not.toBe(rawCookie1);
 
     // Replaying cookie1 within grace window succeeds without rotating again
-    const graceRes = await request(app).post('/api/auth/refresh').set('Cookie', rawCookie1);
+    const graceRes = await postWithCsrf(app, '/api/auth/refresh', rawCookie1, csrf);
     expect(graceRes.status).toBe(200);
 
     // Simulate grace window expiration by backdating rotatedAt on the Session
     await Session.updateMany({}, { $set: { rotatedAt: new Date(Date.now() - 20_000) } });
 
     // Replaying cookie1 outside grace window -> TOKEN REUSE -> revokes entire family (401)
-    const reuseRes = await request(app).post('/api/auth/refresh').set('Cookie', rawCookie1);
+    const reuseRes = await postWithCsrf(app, '/api/auth/refresh', rawCookie1, csrf);
     expect(reuseRes.status).toBe(401);
 
     // Even the legitimate cookie2 is now revoked
-    const victimRes = await request(app).post('/api/auth/refresh').set('Cookie', cookie2);
+    const victimRes = await postWithCsrf(app, '/api/auth/refresh', cookie2, csrf);
     expect(victimRes.status).toBe(401);
   });
 
   it('handles concurrent refreshes safely without false-positive revocation', async () => {
     const { app } = await startServer();
+    const csrf = await getCsrfContext(app);
     const reg = await request(app)
       .post('/api/auth/register')
       .send({ username: 'Alice', password: 'password123' });
@@ -118,8 +140,8 @@ describe('Sub-phase 8.1: Access Tokens, Rotating Refresh Tokens & Sessions', () 
     const rawCookie1 = extractRefreshCookie(reg).split(';')[0];
 
     const [r1, r2] = await Promise.all([
-      request(app).post('/api/auth/refresh').set('Cookie', rawCookie1),
-      request(app).post('/api/auth/refresh').set('Cookie', rawCookie1),
+      postWithCsrf(app, '/api/auth/refresh', rawCookie1, csrf),
+      postWithCsrf(app, '/api/auth/refresh', rawCookie1, csrf),
     ]);
 
     expect(r1.status).toBe(200);
@@ -187,6 +209,7 @@ describe('Sub-phase 8.1: Access Tokens, Rotating Refresh Tokens & Sessions', () 
 
   it('disconnects active sockets within 1 second when session is revoked via logout', async () => {
     const { app, url } = await startServer();
+    const csrf = await getCsrfContext(app);
     const reg = await request(app)
       .post('/api/auth/register')
       .send({ username: 'Alice', password: 'password123' });
@@ -204,7 +227,7 @@ describe('Sub-phase 8.1: Access Tokens, Rotating Refresh Tokens & Sessions', () 
     });
 
     const start = Date.now();
-    const logoutRes = await request(app).post('/api/auth/logout').set('Cookie', rawCookie);
+    const logoutRes = await postWithCsrf(app, '/api/auth/logout', rawCookie, csrf);
     expect(logoutRes.status).toBe(200);
 
     const disconnectedAt = await disconnectedPromise;

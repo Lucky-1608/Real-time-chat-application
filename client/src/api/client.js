@@ -3,11 +3,34 @@ export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:4000')
   ''
 );
 
-// Access token lives strictly in memory (never localStorage) to mitigate XSS token theft.
+// Access token and CSRF token live strictly in memory (never localStorage).
 let inMemoryToken = null;
+let inMemoryCsrfToken = null;
 let onUnauthorizedHandler = null;
 let onTokenRefreshedHandler = null;
 let inFlightRefreshPromise = null;
+
+export async function ensureCsrfToken() {
+  if (inMemoryCsrfToken) return inMemoryCsrfToken;
+  try {
+    const res = await fetch(`${API_URL}/api/auth/csrf`, {
+      method: 'GET',
+      credentials: 'include',
+    });
+    const data = await res.json().catch(() => ({}));
+    if (data?.csrfToken) {
+      inMemoryCsrfToken = data.csrfToken;
+      return inMemoryCsrfToken;
+    }
+  } catch {
+    // Ignore transient CSRF fetch error
+  }
+  return null;
+}
+
+export function clearCsrfToken() {
+  inMemoryCsrfToken = null;
+}
 
 export function setAccessToken(token) {
   inMemoryToken = token || null;
@@ -36,10 +59,15 @@ export async function refreshAccessToken() {
 
   inFlightRefreshPromise = (async () => {
     try {
+      const csrfToken = await ensureCsrfToken();
       const response = await fetch(`${API_URL}/api/auth/refresh`, {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'XMLHttpRequest',
+          ...(csrfToken ? { 'X-CSRF-Token': csrfToken } : {}),
+        },
       });
 
       const data = await response.json().catch(() => ({}));

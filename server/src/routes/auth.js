@@ -12,6 +12,7 @@ import {
 } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
+import { issueCsrfToken, requireCsrf } from '../middleware/csrf.js';
 import { addUserToGeneralRoom } from '../services/roomMigration.js';
 import { defaultPasswordService, getBackoffSeconds } from '../services/passwordService.js';
 import { decryptField, encryptField } from '../services/cryptoService.js';
@@ -78,6 +79,11 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
     router.use('/login', rateLimiter);
     router.use('/2fa/verify', rateLimiter);
   }
+
+  router.get('/csrf', (_req, res) => {
+    const csrfToken = issueCsrfToken(res);
+    res.status(200).json({ csrfToken });
+  });
 
   // Trade-off: In a public chat app usernames are visible in rooms, so registration
   // returns 409 when a username is taken; timing is kept consistent via argon2id hashing only after check.
@@ -422,6 +428,7 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
 
   router.post(
     '/refresh',
+    requireCsrf,
     asyncHandler(async (req, res) => {
       const rawToken = req.cookies?.[REFRESH_COOKIE_NAME];
       const result = await rotateRefreshToken(rawToken);
@@ -459,6 +466,7 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
 
   router.post(
     '/logout',
+    requireCsrf,
     asyncHandler(async (req, res) => {
       const rawToken = req.cookies?.[REFRESH_COOKIE_NAME];
       const revoked = await revokeSessionByToken(rawToken, 'logout');
