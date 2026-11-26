@@ -7,9 +7,10 @@ export function signToken(user) {
     {
       sub: user.id,
       username: user.username,
+      sid: user.sid,
     },
     env.JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: env.ACCESS_TOKEN_TTL }
   );
 }
 
@@ -19,12 +20,14 @@ export function verifyToken(token) {
   }
   try {
     const payload = jwt.verify(token, env.JWT_SECRET);
-    if (!payload?.sub || !payload?.username) {
+    if (!payload?.sub || !payload?.username || !payload?.sid) {
       throw new AppError('Unauthorized', 401);
     }
     return {
       id: payload.sub,
       username: payload.username,
+      sid: payload.sid,
+      exp: payload.exp,
     };
   } catch {
     throw new AppError('Unauthorized', 401);

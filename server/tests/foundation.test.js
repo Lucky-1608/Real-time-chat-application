@@ -103,8 +103,16 @@ describe('Phase 1: Server & WebSocket Foundation', () => {
       const { port } = httpServer.address();
       const url = `http://127.0.0.1:${port}`;
 
-      const tokenA = signToken({ id: '507f1f77bcf86cd799439011', username: 'alice' });
-      const tokenB = signToken({ id: '507f1f77bcf86cd799439012', username: 'bob' });
+      const tokenA = signToken({
+        id: '507f1f77bcf86cd799439011',
+        username: 'alice',
+        sid: '507f1f77bcf86cd799439021',
+      });
+      const tokenB = signToken({
+        id: '507f1f77bcf86cd799439012',
+        username: 'bob',
+        sid: '507f1f77bcf86cd799439022',
+      });
 
       const clientA = createClient(url, { transports: ['websocket'], auth: { token: tokenA } });
       const clientB = createClient(url, { transports: ['websocket'], auth: { token: tokenB } });

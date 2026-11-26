@@ -22,6 +22,13 @@ const envSchema = z
     // Optional: Anthropic Claude API for room summaries (never exposed to client)
     ANTHROPIC_API_KEY: z.string().optional().default(''),
     ANTHROPIC_MODEL: z.string().min(1).default('claude-haiku-4-5-20251001'),
+
+    // Session & token lifetimes
+    ACCESS_TOKEN_TTL: z.string().min(1).default('15m'),
+    REFRESH_TOKEN_TTL_DAYS: z.coerce.number().int().min(1).max(90).default(30),
+    REFRESH_IDLE_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+    REFRESH_GRACE_MS: z.coerce.number().int().min(0).max(60_000).default(10_000),
+    COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).optional(),
   })
   .superRefine((data, ctx) => {
     const anyS3Set = Boolean(

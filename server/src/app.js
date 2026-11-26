@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import cookieParser from 'cookie-parser';
 import env from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { createApiRateLimiter, createAuthRateLimiter, createSummaryRateLimiter } from './middleware/rateLimit.js';
@@ -35,6 +36,7 @@ export function createApp({
   );
   // Cap JSON body size early to mitigate payload-flooding DoS attacks.
   app.use(express.json({ limit: '16kb' }));
+  app.use(cookieParser());
 
   app.get('/health', (_req, res) => {
     res.status(200).json({

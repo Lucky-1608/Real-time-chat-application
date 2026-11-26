@@ -3,7 +3,10 @@ import LoginForm from './components/LoginForm.jsx';
 import ChatWindow from './components/ChatWindow.jsx';
 
 function AppContent() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, initializing } = useAuth();
+  if (initializing) {
+    return null;
+  }
   return isAuthenticated ? <ChatWindow /> : <LoginForm />;
 }
 

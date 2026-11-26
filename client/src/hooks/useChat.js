@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import { API_URL, apiFetch } from '../api/client.js';
+import { API_URL, apiFetch, getAccessToken } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const PAGE_SIZE = 50;
@@ -33,7 +33,7 @@ function sortRoomsByActivity(rooms) {
 }
 
 export function useChat() {
-  const { token, user, logout } = useAuth();
+  const { token, user, logout, refreshSession } = useAuth();
   const socketRef = useRef(null);
   const hasConnectedOnceRef = useRef(false);
 
@@ -221,13 +221,14 @@ export function useChat() {
 
   // Single Socket.io connection per tab, shared across all rooms.
   useEffect(() => {
-    if (!token) return;
+    const initialToken = getAccessToken();
+    if (!user?.id || !initialToken) return;
 
     hasConnectedOnceRef.current = false;
     setConnectionStatus('connecting');
 
     const socket = io(API_URL, {
-      auth: { token },
+      auth: { token: initialToken },
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
@@ -276,12 +277,27 @@ export function useChat() {
 
     const handleDisconnect = () => setConnectionStatus('disconnected');
     const handleReconnectAttempt = () => setConnectionStatus('reconnecting');
-    const handleConnectError = (err) => {
+    const handleConnectError = async (err) => {
       if (err?.message === 'unauthorized') {
+        const refreshed = await refreshSession();
+        if (refreshed?.token) {
+          socket.auth = { token: refreshed.token };
+          socket.connect();
+          return;
+        }
         logout();
         return;
       }
       setConnectionStatus('reconnecting');
+    };
+
+    const handleAuthExpired = async () => {
+      const refreshed = await refreshSession();
+      if (refreshed?.token && socket.connected) {
+        socket.emit('auth:refresh', { token: refreshed.token });
+      } else {
+        logout();
+      }
     };
 
     const handleMessageNew = (incoming) => {
@@ -468,6 +484,7 @@ export function useChat() {
     socket.on('disconnect', handleDisconnect);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
     socket.on('connect_error', handleConnectError);
+    socket.on('auth:expired', handleAuthExpired);
     socket.on('message:new', handleMessageNew);
     socket.on('message:updated', handleMessageUpdated);
     socket.on('message:deleted', handleMessageDeleted);
@@ -487,7 +504,7 @@ export function useChat() {
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [token, user?.id, logout, registerUsers, selectRoom]);
+  }, [user?.id, logout, refreshSession, registerUsers, selectRoom]);
 
   const loadOlderMessages = useCallback(async () => {
     const rId = activeRoomId;
