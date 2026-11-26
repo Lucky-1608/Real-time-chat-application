@@ -34,9 +34,20 @@ export function createPresenceTracker() {
     }));
   }
 
+  function isUserOnline(userId) {
+    return onlineUsers.has(userId.toString());
+  }
+
+  function getOnlineUsersForRoom(room) {
+    const memberIds = new Set((room?.members || []).map((m) => m.user.toString()));
+    return getOnlineUsers().filter((u) => memberIds.has(u.userId));
+  }
+
   return {
     addConnection,
     removeConnection,
     getOnlineUsers,
+    isUserOnline,
+    getOnlineUsersForRoom,
   };
 }

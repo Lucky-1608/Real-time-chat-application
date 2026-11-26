@@ -10,7 +10,7 @@ async function startServer() {
 
   // Share one HTTP server between Express and Socket.io on a single port.
   const httpServer = http.createServer(app);
-  attachSockets(httpServer);
+  attachSockets(httpServer, app);
 
   httpServer.listen(env.PORT, () => {
     console.log(`[server] Listening on port ${env.PORT} (${env.NODE_ENV})`);

@@ -1,4 +1,5 @@
 import Message, { serializeMessage } from '../models/Message.js';
+import Room from '../models/Room.js';
 import { messageReadSchema, messageSendSchema, objectIdSchema } from '../utils/validators.js';
 import { ensureGeneralRoom } from '../services/roomMigration.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
@@ -24,7 +25,7 @@ async function resolveAuthorizedRoom(roomId, userId) {
   return room;
 }
 
-export function registerChatHandlers(io, socket) {
+export function registerChatHandlers(io, socket, presence) {
   const sendTimestamps = [];
   const { id: userId, username } = socket.data.user;
 
@@ -47,6 +48,7 @@ export function registerChatHandlers(io, socket) {
 
     try {
       const room = await resolveAuthorizedRoom(roomId, userId);
+      const roomIdStr = room._id.toString();
 
       // Persist before broadcasting so every delivered message is guaranteed durable
       // and has a canonical MongoDB _id and createdAt timestamp.
@@ -58,8 +60,28 @@ export function registerChatHandlers(io, socket) {
       });
 
       const serialized = serializeMessage(doc);
-      // Use room:global channel until Sub-phase 6.4 migrates sockets to room:<id>.
-      io.to('global').emit('message:new', serialized);
+      io.to(`room:${roomIdStr}`).emit('message:new', serialized);
+
+      // Notify online room members on their personal channel so sidebars update unread badges.
+      if (presence) {
+        const onlineRecipients = room.members.filter(
+          (m) => m.user.toString() !== userId && presence.isUserOnline(m.user)
+        );
+        await Promise.all(
+          onlineRecipients.map(async (member) => {
+            const since = member.lastReadAt || member.joinedAt || new Date(0);
+            const unreadCount = await Message.countDocuments({
+              room: room._id,
+              createdAt: { $gt: since },
+              sender: { $ne: member.user },
+            });
+            io.to(`user:${member.user.toString()}`).emit('room:unread', {
+              roomId: roomIdStr,
+              unreadCount,
+            });
+          })
+        );
+      }
 
       return respond({ ok: true, id: serialized._id });
     } catch (err) {
@@ -77,8 +99,9 @@ export function registerChatHandlers(io, socket) {
       return respond({ ok: false, error: 'Invalid room ID' });
     }
     try {
-      await resolveAuthorizedRoom(payload?.roomId, userId);
-      socket.to('global').emit('typing:start', { userId, username });
+      const room = await resolveAuthorizedRoom(payload?.roomId, userId);
+      const roomIdStr = room._id.toString();
+      socket.to(`room:${roomIdStr}`).emit('typing:start', { roomId: roomIdStr, userId, username });
       return respond({ ok: true });
     } catch (err) {
       return respond({ ok: false, error: err.isOperational ? err.message : 'Unauthorized' });
@@ -91,8 +114,9 @@ export function registerChatHandlers(io, socket) {
       return respond({ ok: false, error: 'Invalid room ID' });
     }
     try {
-      await resolveAuthorizedRoom(payload?.roomId, userId);
-      socket.to('global').emit('typing:stop', { userId, username });
+      const room = await resolveAuthorizedRoom(payload?.roomId, userId);
+      const roomIdStr = room._id.toString();
+      socket.to(`room:${roomIdStr}`).emit('typing:stop', { roomId: roomIdStr, userId, username });
       return respond({ ok: true });
     } catch (err) {
       return respond({ ok: false, error: err.isOperational ? err.message : 'Unauthorized' });
@@ -110,15 +134,30 @@ export function registerChatHandlers(io, socket) {
 
     try {
       const room = await resolveAuthorizedRoom(roomId, userId);
-      await Message.updateMany(
-        { _id: { $in: messageIds }, room: room._id, sender: { $ne: userId } },
-        { $addToSet: { readBy: userId } }
-      );
+      const roomIdStr = room._id.toString();
 
-      io.to('global').emit('message:read', {
+      await Promise.all([
+        Message.updateMany(
+          { _id: { $in: messageIds }, room: room._id, sender: { $ne: userId } },
+          { $addToSet: { readBy: userId } }
+        ),
+        Room.updateOne(
+          { _id: room._id, 'members.user': userId },
+          { $set: { 'members.$.lastReadAt': new Date() } }
+        ),
+      ]);
+
+      io.to(`room:${roomIdStr}`).emit('message:read', {
+        roomId: roomIdStr,
         messageIds,
         userId,
         username,
+      });
+
+      // Keep all open tabs of this user in sync with unreadCount: 0.
+      io.to(`user:${userId}`).emit('room:unread', {
+        roomId: roomIdStr,
+        unreadCount: 0,
       });
 
       return respond({ ok: true });
@@ -128,6 +167,19 @@ export function registerChatHandlers(io, socket) {
       }
       console.error('[socket] Failed to update read receipts:', err);
       return respond({ ok: false, error: 'Failed to mark messages as read' });
+    }
+  });
+
+  // Allows clients to re-verify and re-join a room channel after reconnects.
+  socket.on('room:subscribe', async (payload, ack) => {
+    const respond = typeof ack === 'function' ? ack : () => {};
+    try {
+      const room = await resolveAuthorizedRoom(payload?.roomId, userId);
+      const roomIdStr = room._id.toString();
+      socket.join(`room:${roomIdStr}`);
+      return respond({ ok: true, roomId: roomIdStr });
+    } catch (err) {
+      return respond({ ok: false, error: err.isOperational ? err.message : 'Unauthorized' });
     }
   });
 }

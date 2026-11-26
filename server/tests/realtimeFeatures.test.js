@@ -105,14 +105,14 @@ describe('Phase 4: Presence, Typing Indicators, Read Receipts & Reconnect Catch-
     });
     alice.socket.emit('typing:start');
     const startPayload = await typingStarted;
-    expect(startPayload).toEqual({ userId: alice.user.id, username: 'Alice' });
+    expect(startPayload).toMatchObject({ userId: alice.user.id, username: 'Alice' });
 
     const typingStoppedOnDisconnect = new Promise((resolve) => {
       bob.socket.once('typing:stop', resolve);
     });
     alice.socket.disconnect();
     const stopPayload = await typingStoppedOnDisconnect;
-    expect(stopPayload).toEqual({ userId: alice.user.id, username: 'Alice' });
+    expect(stopPayload).toMatchObject({ userId: alice.user.id, username: 'Alice' });
   });
 
   it('persists read receipts with $addToSet without duplicates and broadcasts { messageIds, userId, username }', async () => {
@@ -135,7 +135,7 @@ describe('Phase 4: Presence, Typing Indicators, Read Receipts & Reconnect Catch-
     expect(readAck.ok).toBe(true);
 
     const broadcast = await readEvent;
-    expect(broadcast).toEqual({
+    expect(broadcast).toMatchObject({
       messageIds: [msgAck.id],
       userId: bob.user.id,
       username: 'Bob',

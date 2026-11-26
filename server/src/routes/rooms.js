@@ -143,6 +143,18 @@ export function createRoomsRouter({ rateLimiter } = {}) {
         .populate('members.user', 'username')
         .lean();
 
+      const io = req.app.locals.io;
+      if (io) {
+        const roomIdStr = created._id.toString();
+        for (const m of populated.members) {
+          const memberId = m.user._id.toString();
+          io.in(`user:${memberId}`).socketsJoin(`room:${roomIdStr}`);
+          io.to(`user:${memberId}`).emit('room:created', {
+            room: serializeRoom(populated, memberId),
+          });
+        }
+      }
+
       res.status(201).json({ room: serializeRoom(populated, userId) });
     })
   );
@@ -196,6 +208,18 @@ export function createRoomsRouter({ rateLimiter } = {}) {
         const populated = await Room.findById(created._id)
           .populate('members.user', 'username')
           .lean();
+
+        const io = req.app.locals.io;
+        if (io) {
+          const roomIdStr = created._id.toString();
+          for (const memberId of [myUserId, targetUserId]) {
+            io.in(`user:${memberId}`).socketsJoin(`room:${roomIdStr}`);
+            io.to(`user:${memberId}`).emit('room:created', {
+              room: serializeRoom(populated, memberId),
+            });
+          }
+        }
+
         return res.status(201).json({ room: serializeRoom(populated, myUserId), created: true });
       } catch (err) {
         if (err.code === 11000) {
@@ -245,7 +269,20 @@ export function createRoomsRouter({ rateLimiter } = {}) {
       const populated = await Room.findById(room._id)
         .populate('members.user', 'username')
         .lean();
-      res.status(200).json({ room: serializeRoom(populated, userId) });
+
+      const serialized = serializeRoom(populated, userId);
+      const io = req.app.locals.io;
+      if (io && !alreadyMember) {
+        const roomIdStr = room._id.toString();
+        io.in(`user:${userId}`).socketsJoin(`room:${roomIdStr}`);
+        io.to(`user:${userId}`).emit('room:joined', { room: serialized });
+        io.to(`room:${roomIdStr}`).emit('room:joined', {
+          roomId: roomIdStr,
+          user: { id: userId, username: req.user.username },
+        });
+      }
+
+      res.status(200).json({ room: serialized });
     })
   );
 
@@ -286,6 +323,22 @@ export function createRoomsRouter({ rateLimiter } = {}) {
       const populated = await Room.findById(room._id)
         .populate('members.user', 'username')
         .lean();
+
+      const io = req.app.locals.io;
+      if (io && newIds.length > 0) {
+        const roomIdStr = room._id.toString();
+        for (const addedId of newIds) {
+          io.in(`user:${addedId}`).socketsJoin(`room:${roomIdStr}`);
+          io.to(`user:${addedId}`).emit('room:created', {
+            room: serializeRoom(populated, addedId),
+          });
+        }
+        io.to(`room:${roomIdStr}`).emit('room:joined', {
+          roomId: roomIdStr,
+          addedMemberIds: newIds,
+        });
+      }
+
       res.status(200).json({
         room: serializeRoom(populated, req.user.id),
         addedMemberIds: newIds,
@@ -311,7 +364,15 @@ export function createRoomsRouter({ rateLimiter } = {}) {
         { $pull: { members: { user: req.user.id } } }
       );
 
-      res.status(200).json({ ok: true, roomId: room._id.toString() });
+      const roomIdStr = room._id.toString();
+      const io = req.app.locals.io;
+      if (io) {
+        io.in(`user:${req.user.id}`).socketsLeave(`room:${roomIdStr}`);
+        io.to(`user:${req.user.id}`).emit('room:left', { roomId: roomIdStr });
+        io.to(`room:${roomIdStr}`).emit('room:left', { roomId: roomIdStr, userId: req.user.id });
+      }
+
+      res.status(200).json({ ok: true, roomId: roomIdStr });
     })
   );
 
@@ -324,12 +385,19 @@ export function createRoomsRouter({ rateLimiter } = {}) {
         throw new AppError('This room cannot be deleted', 400);
       }
 
+      const roomIdStr = room._id.toString();
+      const io = req.app.locals.io;
+      if (io) {
+        io.to(`room:${roomIdStr}`).emit('room:left', { roomId: roomIdStr, deleted: true });
+        io.in(`room:${roomIdStr}`).socketsLeave(`room:${roomIdStr}`);
+      }
+
       await Promise.all([
         Message.deleteMany({ room: room._id }),
         Room.deleteOne({ _id: room._id }),
       ]);
 
-      res.status(200).json({ ok: true, roomId: room._id.toString() });
+      res.status(200).json({ ok: true, roomId: roomIdStr });
     })
   );
 
