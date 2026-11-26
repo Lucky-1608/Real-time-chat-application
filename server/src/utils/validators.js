@@ -193,6 +193,12 @@ export const updateRoomSchema = z
     announcementMode: z.boolean().optional(),
     maxMembers: z.coerce.number().int().min(2).max(500).optional(),
     allowInviteLinks: z.boolean().optional(),
+    disappearingTtlSeconds: z.union([
+      z.literal(0),
+      z.literal(3600),
+      z.literal(86400),
+      z.literal(604800),
+    ]).optional(),
   })
   .refine(
     (d) =>
@@ -200,7 +206,8 @@ export const updateRoomSchema = z
       d.slowModeSeconds !== undefined ||
       d.announcementMode !== undefined ||
       d.maxMembers !== undefined ||
-      d.allowInviteLinks !== undefined,
+      d.allowInviteLinks !== undefined ||
+      d.disappearingTtlSeconds !== undefined,
     {
       message: 'At least one room setting must be provided',
     }
@@ -244,4 +251,9 @@ export const userStatusSchema = z.object({
   dndUntil: z.string().datetime().nullable().optional(),
   appearOffline: z.boolean().optional(),
   globalMute: z.boolean().optional(),
+});
+
+export const scheduleMessageSchema = z.object({
+  text: z.string().trim().min(1, 'Message cannot be empty').max(2000, 'Message cannot exceed 2000 characters'),
+  sendAt: z.string().datetime({ message: 'Invalid sendAt timestamp' }),
 });

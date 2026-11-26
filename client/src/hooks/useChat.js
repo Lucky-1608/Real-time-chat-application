@@ -551,6 +551,13 @@ export function useChat() {
       setUserStatuses((prev) => ({ ...prev, [uid]: { customStatus, dnd } }));
     };
 
+    const handleRoomUpdated = ({ roomId, ...updates }) => {
+      if (!roomId) return;
+      setRooms((prev) =>
+        prev.map((r) => (r._id === roomId ? { ...r, ...updates } : r))
+      );
+    };
+
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
@@ -574,6 +581,7 @@ export function useChat() {
     socket.on('draft:updated', handleDraftUpdated);
     socket.on('room:pins_updated', handlePinsUpdated);
     socket.on('user:status_updated', handleUserStatusUpdated);
+    socket.on('room:updated', handleRoomUpdated);
 
     return () => {
       socket.io.off('reconnect_attempt', handleReconnectAttempt);

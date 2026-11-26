@@ -129,6 +129,27 @@ export default function ChatWindow() {
             onLogout={logout}
           />
 
+          {activeRoom?.disappearingTtlSeconds > 0 && (
+            <div
+              role="status"
+              style={{
+                padding: '0.35rem 1rem',
+                fontSize: '0.8rem',
+                background: 'rgba(245, 158, 11, 0.14)',
+                borderBottom: '1px solid rgba(245, 158, 11, 0.3)',
+                textAlign: 'center',
+              }}
+            >
+              Disappearing messages are enabled: new messages expire after{' '}
+              {activeRoom.disappearingTtlSeconds === 3600
+                ? '1 hour'
+                : activeRoom.disappearingTtlSeconds === 86400
+                  ? '24 hours'
+                  : '7 days'}
+              .
+            </div>
+          )}
+
           <main className={styles.chatMain}>
             <MessageList
               roomId={activeRoomId}

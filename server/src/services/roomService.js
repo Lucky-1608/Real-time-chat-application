@@ -43,6 +43,7 @@ export function serializeRoom(roomDoc, currentUserId, { lastMessage = null, unre
     announcementMode: Boolean(roomDoc.announcementMode),
     maxMembers: roomDoc.maxMembers || MAX_MEMBERS_PER_ROOM,
     allowInviteLinks: roomDoc.allowInviteLinks !== false,
+    disappearingTtlSeconds: roomDoc.disappearingTtlSeconds || 0,
     pinnedMessages: (roomDoc.pinnedMessages || []).map((id) => id.toString()),
     lastMessage,
     unreadCount,
@@ -122,8 +123,11 @@ export async function getRoomMessages({
 }) {
   const { room } = await getRoomIfMember(roomId, userId);
 
+  const now = new Date();
+  const notExpired = { $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] };
+
   if (around) {
-    const anchor = await Message.findOne({ _id: around, room: room._id }).lean();
+    const anchor = await Message.findOne({ _id: around, room: room._id, ...notExpired }).lean();
     if (!anchor) {
       return { messages: [], hasMore: false, hasMoreOlder: false, hasMoreNewer: false };
     }
@@ -134,6 +138,7 @@ export async function getRoomMessages({
         room: room._id,
         _id: { $ne: anchor._id },
         createdAt: { $lte: anchor.createdAt },
+        ...notExpired,
       })
         .sort({ createdAt: -1, _id: -1 })
         .limit(half + 1)
@@ -142,6 +147,7 @@ export async function getRoomMessages({
         room: room._id,
         _id: { $ne: anchor._id },
         createdAt: { $gte: anchor.createdAt },
+        ...notExpired,
       })
         .sort({ createdAt: 1, _id: 1 })
         .limit(limit - 1 - half + 1)
@@ -183,6 +189,7 @@ export async function getRoomMessages({
     const docs = await Message.find({
       room: room._id,
       createdAt: { $gt: new Date(after) },
+      ...notExpired,
     })
       .sort({ createdAt: 1 })
       .limit(limit)
@@ -198,7 +205,7 @@ export async function getRoomMessages({
     };
   }
 
-  const filter = { room: room._id };
+  const filter = { room: room._id, ...notExpired };
   if (before) {
     filter.createdAt = { $lt: new Date(before) };
   }

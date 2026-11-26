@@ -2,7 +2,6 @@ import mongoose from 'mongoose';
 import Message, { serializeMessage, serializeReactions } from '../models/Message.js';
 import Room from '../models/Room.js';
 import User from '../models/User.js';
-import Draft from '../models/Draft.js';
 import {
   messageDeleteSchema,
   messageEditSchema,
@@ -14,6 +13,7 @@ import {
 import { ensureGeneralRoom } from '../services/roomMigration.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
 import { can } from '../services/permissions.js';
+import { deliverMessage } from '../services/messageService.js';
 import { defaultStorageService } from '../services/storage.js';
 import { defaultFloodControl } from '../services/floodControl.js';
 import { audit } from '../services/auditService.js';
@@ -79,35 +79,6 @@ export function registerChatHandlers(
       const room = await resolveAuthorizedRoom(roomId, userId);
       const roomIdStr = room._id.toString();
 
-      if (!can(socket.data.user, 'message.send', { room })) {
-        return respond({ ok: false, error: 'You do not have permission to send messages here' });
-      }
-
-      if (room.type === 'dm') {
-        const other = room.members.find((m) => m.user.toString() !== userId);
-        if (other) {
-          const [senderDoc, otherDoc] = await Promise.all([
-            User.findById(userId, { blockedUsers: 1 }).lean(),
-            User.findById(other.user, { blockedUsers: 1 }).lean(),
-          ]);
-          const blocked =
-            (senderDoc?.blockedUsers || []).some((id) => id.toString() === other.user.toString()) ||
-            (otherDoc?.blockedUsers || []).some((id) => id.toString() === userId);
-          if (blocked) {
-            return respond({ ok: false, error: 'You cannot message this user' });
-          }
-        }
-      }
-
-      const slowCheck = floodControl.checkSlowMode({
-        roomId: roomIdStr,
-        userId,
-        slowModeSeconds: room.slowModeSeconds || 0,
-      });
-      if (!slowCheck.ok) {
-        return respond(slowCheck);
-      }
-
       const spamCheck = floodControl.checkSpam({ userId, text });
       if (!spamCheck.ok) {
         return respond(spamCheck);
@@ -122,77 +93,19 @@ export function registerChatHandlers(
         await storageService.verifyUploadedObject({ key: att.key, expectedSize: att.size });
       }
 
-      // Persist before broadcasting so every delivered message is guaranteed durable
-      // and has a canonical MongoDB _id and createdAt timestamp.
-      const doc = await Message.create({
-        room: room._id,
-        sender: userId,
-        senderName: username,
+      const result = await deliverMessage({
+        room,
+        userId,
+        username,
         text,
-        attachments: attachments.map((att) => ({ ...att, scanStatus: 'pending' })),
+        attachments,
+        io,
+        presence,
+        storageService,
+        floodControl,
       });
 
-      const serialized = await storageService.attachDownloadUrls(serializeMessage(doc));
-      io.to(`room:${roomIdStr}`).emit('message:new', serialized);
-
-      // Clear any saved draft for this room and sync across user's open tabs.
-      await Draft.deleteOne({ user: userId, room: room._id }).catch(() => {});
-      io.to(`user:${userId}`).emit('draft:updated', { roomId: roomIdStr, text: '' });
-
-      // Notify online room members on their personal channel so sidebars update unread badges.
-      if (presence) {
-        const onlineRecipients = room.members.filter(
-          (m) =>
-            !m.muted &&
-            m.notificationLevel !== 'muted' &&
-            m.user.toString() !== userId &&
-            presence.isUserOnline(m.user)
-        );
-        if (onlineRecipients.length > 0) {
-          const recipientDocs = await User.find(
-            { _id: { $in: onlineRecipients.map((m) => m.user) } },
-            { username: 1, mutedUsers: 1, blockedUsers: 1, globalMute: 1, dnd: 1 }
-          ).lean();
-          const docById = new Map(recipientDocs.map((u) => [u._id.toString(), u]));
-
-          const eligible = onlineRecipients.filter((m) => {
-            const u = docById.get(m.user.toString());
-            if (!u) return false;
-            if (u.globalMute) return false;
-            if (u.dnd?.enabled && (!u.dnd.until || new Date(u.dnd.until) > new Date())) {
-              return false;
-            }
-            if (
-              (u.mutedUsers || []).some((id) => id.toString() === userId) ||
-              (u.blockedUsers || []).some((id) => id.toString() === userId)
-            ) {
-              return false;
-            }
-            if (m.notificationLevel === 'mentions') {
-              const mentionPattern = new RegExp(`@${u.username}\\b`, 'i');
-              return mentionPattern.test(text || '');
-            }
-            return true;
-          });
-
-          await Promise.all(
-            eligible.map(async (member) => {
-              const since = member.lastReadAt || member.joinedAt || new Date(0);
-              const unreadCount = await Message.countDocuments({
-                room: room._id,
-                createdAt: { $gt: since },
-                sender: { $ne: member.user },
-              });
-              io.to(`user:${member.user.toString()}`).emit('room:unread', {
-                roomId: roomIdStr,
-                unreadCount,
-              });
-            })
-          );
-        }
-      }
-
-      return respond({ ok: true, id: serialized._id });
+      return respond(result);
     } catch (err) {
       if (err.isOperational) {
         return respond({ ok: false, error: err.message });

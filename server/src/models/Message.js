@@ -88,6 +88,14 @@ const messageSchema = new mongoose.Schema(
       ref: 'User',
       default: null,
     },
+    expiresAt: {
+      type: Date,
+      default: null,
+    },
+    scheduledKey: {
+      type: String,
+      default: undefined,
+    },
   },
   {
     timestamps: true,
@@ -97,6 +105,8 @@ const messageSchema = new mongoose.Schema(
 messageSchema.index({ room: 1, createdAt: -1 });
 messageSchema.index({ room: 1, updatedAt: -1 });
 messageSchema.index({ 'attachments.scanStatus': 1, 'attachments.scanClaimedAt': 1 });
+messageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
+messageSchema.index({ scheduledKey: 1 }, { unique: true, sparse: true });
 
 export function serializeReactions(reactions = []) {
   return reactions
@@ -131,6 +141,7 @@ export function serializeMessage(doc) {
         })),
     editedAt: isDeleted ? null : toIso(doc.editedAt),
     deletedAt: toIso(doc.deletedAt),
+    expiresAt: toIso(doc.expiresAt),
     createdAt: toIso(doc.createdAt),
     updatedAt: toIso(doc.updatedAt),
   };

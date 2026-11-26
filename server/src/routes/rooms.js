@@ -6,6 +6,7 @@ import User from '../models/User.js';
 import Message, { serializeMessage } from '../models/Message.js';
 import InviteLink from '../models/InviteLink.js';
 import Draft from '../models/Draft.js';
+import ScheduledMessage from '../models/ScheduledMessage.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -22,6 +23,7 @@ import {
   roomChangesQuerySchema,
   roomMuteSchema,
   roomSummarySchema,
+  scheduleMessageSchema,
   updateRoomSchema,
 } from '../utils/validators.js';
 import { getRoomIfMember, parseRoomId } from '../services/roomAccess.js';
@@ -462,7 +464,8 @@ export function createRoomsRouter({
         parsed.data.slowModeSeconds !== undefined ||
         parsed.data.announcementMode !== undefined ||
         parsed.data.maxMembers !== undefined ||
-        parsed.data.allowInviteLinks !== undefined
+        parsed.data.allowInviteLinks !== undefined ||
+        parsed.data.disappearingTtlSeconds !== undefined
       ) {
         assertCan(req.user, 'room.settings', { room });
         if (parsed.data.slowModeSeconds !== undefined) {
@@ -480,6 +483,10 @@ export function createRoomsRouter({
         if (parsed.data.allowInviteLinks !== undefined) {
           room.allowInviteLinks = parsed.data.allowInviteLinks;
         }
+        if (parsed.data.disappearingTtlSeconds !== undefined) {
+          // Changing disappearingTtlSeconds affects only NEW messages created afterwards.
+          room.disappearingTtlSeconds = parsed.data.disappearingTtlSeconds;
+        }
       }
 
       await room.save();
@@ -495,6 +502,7 @@ export function createRoomsRouter({
           announcementMode: room.announcementMode,
           maxMembers: room.maxMembers,
           allowInviteLinks: room.allowInviteLinks,
+          disappearingTtlSeconds: room.disappearingTtlSeconds,
         });
       }
 
@@ -1004,6 +1012,83 @@ export function createRoomsRouter({
       );
 
       res.status(200).json({ ok: true, roomId: room._id.toString(), level });
+    })
+  );
+
+  // POST /api/rooms/:id/scheduled — schedule a message 1m to 30d ahead (max 20 pending per user)
+  router.post(
+    '/:id/scheduled',
+    asyncHandler(async (req, res) => {
+      const parsed = scheduleMessageSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid scheduled message', 400);
+      }
+
+      const sendAt = new Date(parsed.data.sendAt);
+      const nowMs = Date.now();
+      const minMs = nowMs + 60 * 1000;
+      const maxMs = nowMs + 30 * 24 * 60 * 60 * 1000;
+      if (sendAt.getTime() < minMs || sendAt.getTime() > maxMs) {
+        throw new AppError('sendAt must be between 1 minute and 30 days from now', 400);
+      }
+
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      assertCan(req.user, 'message.send', { room });
+
+      const pendingCount = await ScheduledMessage.countDocuments({
+        sender: req.user.id,
+        status: 'pending',
+      });
+      if (pendingCount >= 20) {
+        throw new AppError('Maximum 20 pending scheduled messages allowed', 400);
+      }
+
+      const scheduled = await ScheduledMessage.create({
+        room: room._id,
+        sender: req.user.id,
+        senderName: req.user.username,
+        text: parsed.data.text,
+        sendAt,
+      });
+
+      res.status(201).json({ scheduled });
+    })
+  );
+
+  // GET /api/rooms/:id/scheduled — list my pending scheduled messages in this room
+  router.get(
+    '/:id/scheduled',
+    asyncHandler(async (req, res) => {
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const scheduled = await ScheduledMessage.find({
+        room: room._id,
+        sender: req.user.id,
+        status: 'pending',
+      })
+        .sort({ sendAt: 1 })
+        .lean();
+
+      res.status(200).json({ scheduled });
+    })
+  );
+
+  // DELETE /api/rooms/:id/scheduled/:scheduledId — cancel my pending scheduled message
+  router.delete(
+    '/:id/scheduled/:scheduledId',
+    asyncHandler(async (req, res) => {
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const scheduledId = parseRoomId(req.params.scheduledId);
+
+      const updated = await ScheduledMessage.findOneAndUpdate(
+        { _id: scheduledId, room: room._id, sender: req.user.id, status: 'pending' },
+        { $set: { status: 'cancelled' } },
+        { new: true }
+      );
+      if (!updated) {
+        throw new AppError('Scheduled message not found', 404);
+      }
+
+      res.status(200).json({ ok: true, id: scheduledId });
     })
   );
 

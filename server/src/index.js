@@ -5,6 +5,7 @@ import app from './app.js';
 import { attachSockets } from './sockets/index.js';
 import { defaultStorageService } from './services/storage.js';
 import { createClamdScanner, createScanWorker } from './services/scanWorker.js';
+import { createSchedulerService } from './services/schedulerService.js';
 
 async function startServer() {
   await mongoose.connect(env.MONGO_URI);
@@ -13,6 +14,13 @@ async function startServer() {
   // Share one HTTP server between Express and Socket.io on a single port.
   const httpServer = http.createServer(app);
   const io = attachSockets(httpServer, app);
+
+  const scheduler = createSchedulerService({
+    io,
+    presence: app.locals.presence,
+    storageService: defaultStorageService,
+  });
+  scheduler.start();
 
   let scanWorker = null;
   if (defaultStorageService.isConfigured() && env.CLAMD_HOST) {
@@ -33,6 +41,7 @@ async function startServer() {
 
   const shutdown = async (signal) => {
     console.log(`[server] ${signal} received, shutting down gracefully...`);
+    scheduler.stop();
     scanWorker?.stop();
     httpServer.close(async () => {
       await mongoose.connection.close();
