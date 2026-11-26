@@ -42,6 +42,7 @@ describe('Phase 1: Server & WebSocket Foundation', () => {
       const parsed = parseEnv({
         MONGO_URI: 'mongodb://localhost:27017/test',
         JWT_SECRET: 'a'.repeat(32),
+        ENCRYPTION_KEY: 'b'.repeat(32),
         CLIENT_URL: 'http://localhost:5173',
       });
       expect(parsed.PORT).toBe(4000);

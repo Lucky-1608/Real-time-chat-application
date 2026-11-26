@@ -6,3 +6,5 @@ process.env.CLIENT_URL = 'http://localhost:5173';
 process.env.HIBP_ENABLED = 'false';
 process.env.ARGON2_MEMORY_KB = '16384';
 process.env.ARGON2_TIME_COST = '1';
+process.env.ENCRYPTION_KEY_ID = 'k1';
+process.env.ENCRYPTION_KEY = 'test-encryption-key-at-least-32-chars-long-for-aes-gcm';

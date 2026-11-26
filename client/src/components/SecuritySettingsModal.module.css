@@ -180,3 +180,26 @@
   color: #86efac;
   font-size: 0.82rem;
 }
+
+.qrImg {
+  width: 150px;
+  height: 150px;
+  background: #ffffff;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+}
+
+.recoveryBox {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0.35rem;
+  padding: 0.6rem;
+  background: var(--bg-input);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+}
+
+.recoveryCode {
+  font-size: 0.8rem;
+  color: var(--text-primary);
+}

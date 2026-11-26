@@ -152,3 +152,22 @@ export const roomSummarySchema = z.object({
     .optional(),
   force: z.boolean().optional().default(false),
 });
+
+export const twoFactorCodeSchema = z.object({
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter a 6-digit verification code'),
+});
+
+export const twoFactorVerifySchema = z
+  .object({
+    mfaToken: z.string().min(1, 'MFA token is required'),
+    code: z.string().trim().optional(),
+    recoveryCode: z.string().trim().optional(),
+  })
+  .refine((d) => Boolean(d.code || d.recoveryCode), {
+    message: 'Verification code or recovery code is required',
+  });
+
+export const twoFactorDisableSchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+  code: z.string().trim().regex(/^\d{6}$/, 'Enter a 6-digit verification code'),
+});

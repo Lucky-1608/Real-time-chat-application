@@ -87,11 +87,31 @@ export function AuthProvider({ children }) {
       skipAuth: true,
       body: JSON.stringify({ username, password }),
     });
+    if (data.mfaRequired) {
+      return { mfaRequired: true, mfaToken: data.mfaToken };
+    }
     const nextAuth = { token: data.token, user: data.user };
     setAccessToken(data.token);
     setSignedOutNotice('');
     setAuth(nextAuth);
     return nextAuth;
+  }, []);
+
+  const verifyMfa = useCallback(async ({ mfaToken, code, recoveryCode }) => {
+    const data = await apiFetch('/api/auth/2fa/verify', {
+      method: 'POST',
+      skipAuth: true,
+      body: JSON.stringify({ mfaToken, code, recoveryCode }),
+    });
+    const nextAuth = { token: data.token, user: data.user };
+    setAccessToken(data.token);
+    setSignedOutNotice('');
+    setAuth(nextAuth);
+    return nextAuth;
+  }, []);
+
+  const updateUser = useCallback((patch) => {
+    setAuth((prev) => (prev ? { ...prev, user: { ...prev.user, ...patch } } : prev));
   }, []);
 
   const register = useCallback(async (username, password) => {
@@ -115,12 +135,25 @@ export function AuthProvider({ children }) {
       signedOutNotice,
       isAuthenticated: Boolean(auth?.token && auth?.user),
       login,
+      verifyMfa,
       register,
       logout,
       forceSignOut,
       refreshSession,
+      updateUser,
     }),
-    [auth, initializing, signedOutNotice, login, register, logout, forceSignOut, refreshSession]
+    [
+      auth,
+      initializing,
+      signedOutNotice,
+      login,
+      verifyMfa,
+      register,
+      logout,
+      forceSignOut,
+      refreshSession,
+      updateUser,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

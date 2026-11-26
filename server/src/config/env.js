@@ -36,6 +36,13 @@ const envSchema = z
     ARGON2_PARALLELISM: z.coerce.number().int().min(1).default(1),
     PASSWORD_PEPPER: z.string().optional().default(''),
     HIBP_ENABLED: z.enum(['true', 'false']).default('true'),
+
+    // Field-level encryption (AES-256-GCM) with key ID for rotation
+    ENCRYPTION_KEY_ID: z.string().min(1).default('k1'),
+    ENCRYPTION_KEY: z
+      .string()
+      .min(32, 'ENCRYPTION_KEY must be at least 32 characters for AES-256-GCM'),
+    ENCRYPTION_PREVIOUS_KEYS: z.string().optional().default(''),
   })
   .superRefine((data, ctx) => {
     const anyS3Set = Boolean(

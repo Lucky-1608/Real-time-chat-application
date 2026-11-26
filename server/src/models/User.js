@@ -30,6 +30,32 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    twoFactorEnabled: {
+      type: Boolean,
+      default: false,
+    },
+    twoFactorSecretEnc: {
+      type: String,
+      default: null,
+    },
+    twoFactorPendingSecretEnc: {
+      type: String,
+      default: null,
+    },
+    twoFactorLastStep: {
+      type: Number,
+      default: null,
+    },
+    recoveryCodeHashes: {
+      type: [
+        {
+          hash: { type: String, required: true },
+          usedAt: { type: Date, default: null },
+        },
+      ],
+      default: [],
+      _id: false,
+    },
   },
   {
     timestamps: true,
@@ -38,6 +64,7 @@ const userSchema = new mongoose.Schema(
         return {
           id: ret._id.toString(),
           username: ret.username,
+          twoFactorEnabled: Boolean(ret.twoFactorEnabled),
           createdAt: ret.createdAt,
         };
       },

@@ -12,7 +12,7 @@ function formatDate(iso) {
 }
 
 export default function SecuritySettingsModal({ isOpen, onClose }) {
-  const { logout } = useAuth();
+  const { user, logout, updateUser } = useAuth();
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -23,6 +23,13 @@ export default function SecuritySettingsModal({ isOpen, onClose }) {
   const [newPassword, setNewPassword] = useState('');
   const [pwStatus, setPwStatus] = useState({ error: '', success: '' });
   const [changingPw, setChangingPw] = useState(false);
+
+  const [mfaSetup, setMfaSetup] = useState(null);
+  const [mfaCode, setMfaCode] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState(null);
+  const [disablePw, setDisablePw] = useState('');
+  const [disableCode, setDisableCode] = useState('');
+  const [mfaStatus, setMfaStatus] = useState({ error: '', success: '' });
 
   const loadSessions = useCallback(async () => {
     setLoading(true);
@@ -46,8 +53,63 @@ export default function SecuritySettingsModal({ isOpen, onClose }) {
       setCurrentPassword('');
       setNewPassword('');
       setPwStatus({ error: '', success: '' });
+      setMfaSetup(null);
+      setMfaCode('');
+      setRecoveryCodes(null);
+      setDisablePw('');
+      setDisableCode('');
+      setMfaStatus({ error: '', success: '' });
     }
   }, [isOpen, loadSessions]);
+
+  async function handleStart2fa() {
+    setMfaStatus({ error: '', success: '' });
+    try {
+      const data = await apiFetch('/api/auth/2fa/setup', { method: 'POST' });
+      setMfaSetup(data);
+    } catch (err) {
+      setMfaStatus({ error: err.message || 'Failed to start 2FA setup', success: '' });
+    }
+  }
+
+  async function handleEnable2fa(e) {
+    e.preventDefault();
+    setMfaStatus({ error: '', success: '' });
+    try {
+      const data = await apiFetch('/api/auth/2fa/enable', {
+        method: 'POST',
+        body: JSON.stringify({ code: mfaCode.trim() }),
+      });
+      setRecoveryCodes(data.recoveryCodes || []);
+      setMfaSetup(null);
+      setMfaCode('');
+      updateUser({ twoFactorEnabled: true });
+      setMfaStatus({
+        error: '',
+        success: '2FA enabled. Save these recovery codes somewhere safe—they are shown once.',
+      });
+    } catch (err) {
+      setMfaStatus({ error: err.message || 'Failed to enable 2FA', success: '' });
+    }
+  }
+
+  async function handleDisable2fa(e) {
+    e.preventDefault();
+    setMfaStatus({ error: '', success: '' });
+    try {
+      await apiFetch('/api/auth/2fa/disable', {
+        method: 'POST',
+        body: JSON.stringify({ password: disablePw, code: disableCode.trim() }),
+      });
+      setDisablePw('');
+      setDisableCode('');
+      setRecoveryCodes(null);
+      updateUser({ twoFactorEnabled: false });
+      setMfaStatus({ error: '', success: 'Two-factor authentication disabled.' });
+    } catch (err) {
+      setMfaStatus({ error: err.message || 'Failed to disable 2FA', success: '' });
+    }
+  }
 
   async function handleChangePassword(e) {
     e.preventDefault();
@@ -244,6 +306,76 @@ export default function SecuritySettingsModal({ isOpen, onClose }) {
             {changingPw ? 'Updating…' : 'Update Password'}
           </button>
         </form>
+
+        <div className={styles.pwSection}>
+          <h3 className={styles.pwHeading}>Two-Factor Authentication (2FA)</h3>
+          {mfaStatus.error && (
+            <div className={styles.error} role="alert">
+              {mfaStatus.error}
+            </div>
+          )}
+          {mfaStatus.success && (
+            <div className={styles.success} role="status">
+              {mfaStatus.success}
+            </div>
+          )}
+
+          {recoveryCodes && (
+            <div className={styles.recoveryBox}>
+              {recoveryCodes.map((c) => (
+                <code key={c} className={styles.recoveryCode}>
+                  {c}
+                </code>
+              ))}
+            </div>
+          )}
+
+          {!user?.twoFactorEnabled ? (
+            mfaSetup ? (
+              <form className={styles.pwSection} onSubmit={handleEnable2fa}>
+                <img src={mfaSetup.qrDataUrl} alt="2FA QR Code" className={styles.qrImg} />
+                <span className={styles.meta}>Secret: {mfaSetup.secret}</span>
+                <input
+                  type="text"
+                  className={styles.pwInput}
+                  placeholder="Enter 6-digit code to confirm"
+                  value={mfaCode}
+                  onChange={(e) => setMfaCode(e.target.value)}
+                  required
+                />
+                <button type="submit" className={styles.pwBtn}>
+                  Verify & Enable 2FA
+                </button>
+              </form>
+            ) : (
+              <button type="button" className={styles.pwBtn} onClick={handleStart2fa}>
+                Enable 2FA
+              </button>
+            )
+          ) : (
+            <form className={styles.pwSection} onSubmit={handleDisable2fa}>
+              <input
+                type="password"
+                className={styles.pwInput}
+                placeholder="Current password"
+                value={disablePw}
+                onChange={(e) => setDisablePw(e.target.value)}
+                required
+              />
+              <input
+                type="text"
+                className={styles.pwInput}
+                placeholder="Current 6-digit code"
+                value={disableCode}
+                onChange={(e) => setDisableCode(e.target.value)}
+                required
+              />
+              <button type="submit" className={styles.dangerBtn}>
+                Disable 2FA
+              </button>
+            </form>
+          )}
+        </div>
       </div>
     </Modal>
   );
