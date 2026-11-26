@@ -1,6 +1,7 @@
 import mongoose from 'mongoose';
 import Message, { serializeMessage, serializeReactions } from '../models/Message.js';
 import Room from '../models/Room.js';
+import User from '../models/User.js';
 import {
   messageDeleteSchema,
   messageEditSchema,
@@ -12,17 +13,20 @@ import {
 import { ensureGeneralRoom } from '../services/roomMigration.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
 import { defaultStorageService } from '../services/storage.js';
+import { defaultFloodControl } from '../services/floodControl.js';
+import { audit } from '../services/auditService.js';
 
 const RATE_WINDOW_MS = 10_000;
 const MAX_MESSAGES_PER_WINDOW = 10;
+const MAX_NEW_ACCOUNT_MESSAGES_PER_WINDOW = 3;
 export const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
-function isSocketRateLimited(timestamps, now) {
+function isSocketRateLimited(timestamps, now, maxMessages = MAX_MESSAGES_PER_WINDOW) {
   // Evict timestamps outside the sliding 10-second window.
   while (timestamps.length > 0 && now - timestamps[0] >= RATE_WINDOW_MS) {
     timestamps.shift();
   }
-  if (timestamps.length >= MAX_MESSAGES_PER_WINDOW) {
+  if (timestamps.length >= maxMessages) {
     return true;
   }
   timestamps.push(now);
@@ -39,7 +43,7 @@ export function registerChatHandlers(
   io,
   socket,
   presence,
-  { storageService = defaultStorageService } = {}
+  { storageService = defaultStorageService, floodControl = defaultFloodControl } = {}
 ) {
   const sendTimestamps = [];
   const { id: userId, username } = socket.data.user;
@@ -47,7 +51,15 @@ export function registerChatHandlers(
   socket.on('message:send', async (payload, ack) => {
     const respond = typeof ack === 'function' ? ack : () => {};
 
-    if (isSocketRateLimited(sendTimestamps, Date.now())) {
+    if (socket.data.userCreatedAt === undefined && mongoose.isValidObjectId(userId)) {
+      const userDoc = await User.findById(userId, { createdAt: 1 }).lean();
+      socket.data.userCreatedAt = userDoc?.createdAt ?? null;
+    }
+    const maxPerWindow = floodControl.isNewAccount(socket.data.userCreatedAt)
+      ? MAX_NEW_ACCOUNT_MESSAGES_PER_WINDOW
+      : MAX_MESSAGES_PER_WINDOW;
+
+    if (isSocketRateLimited(sendTimestamps, Date.now(), maxPerWindow)) {
       return respond({ ok: false, error: 'Rate limit exceeded. Please slow down.' });
     }
 
@@ -64,6 +76,20 @@ export function registerChatHandlers(
     try {
       const room = await resolveAuthorizedRoom(roomId, userId);
       const roomIdStr = room._id.toString();
+
+      const slowCheck = floodControl.checkSlowMode({
+        roomId: roomIdStr,
+        userId,
+        slowModeSeconds: room.slowModeSeconds || 0,
+      });
+      if (!slowCheck.ok) {
+        return respond(slowCheck);
+      }
+
+      const spamCheck = floodControl.checkSpam({ userId, text });
+      if (!spamCheck.ok) {
+        return respond(spamCheck);
+      }
 
       // Re-validate attachment keys so a user cannot reference objects from another room.
       const expectedPrefix = `uploads/${roomIdStr}/`;
@@ -205,6 +231,20 @@ export function registerChatHandlers(
         msg.deletedAt = new Date();
         msg.deletedBy = userId;
         await msg.save();
+
+        if (!isAuthor && isOwner) {
+          await audit('message.delete_moderator', {
+            actor: userId,
+            targetType: 'message',
+            targetId: msg._id.toString(),
+            ip: socket.data.clientIp,
+            userAgent: socket.handshake?.headers?.['user-agent'],
+            metadata: {
+              roomId: room._id.toString(),
+              originalSender: msg.sender.toString(),
+            },
+          });
+        }
       }
 
       io.to(`room:${room._id.toString()}`).emit('message:deleted', {

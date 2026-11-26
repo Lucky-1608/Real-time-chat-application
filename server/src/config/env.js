@@ -43,6 +43,9 @@ const envSchema = z
       .string()
       .min(32, 'ENCRYPTION_KEY must be at least 32 characters for AES-256-GCM'),
     ENCRYPTION_PREVIOUS_KEYS: z.string().optional().default(''),
+
+    // Flood control
+    NEW_ACCOUNT_RESTRICTION_MINUTES: z.coerce.number().int().min(0).max(1440).default(10),
   })
   .superRefine((data, ctx) => {
     const anyS3Set = Boolean(

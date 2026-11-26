@@ -25,6 +25,7 @@ import {
   serializeRoom,
 } from '../services/roomService.js';
 import { defaultSummaryService } from '../services/summaryService.js';
+import { defaultFloodControl } from '../services/floodControl.js';
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -35,6 +36,7 @@ export function createRoomsRouter({
   summaryRateLimiter,
   storageService,
   summaryService = defaultSummaryService,
+  floodControl = defaultFloodControl,
 } = {}) {
   const router = Router();
 
@@ -197,6 +199,9 @@ export function createRoomsRouter({
       if (existing) {
         return res.status(200).json({ room: serializeRoom(existing, myUserId), created: false });
       }
+
+      const myUser = await User.findById(myUserId, { createdAt: 1 }).lean();
+      floodControl.assertNewAccountAllowed(myUser?.createdAt, 'starting direct messages');
 
       const myRoomCount = await Room.countDocuments({ 'members.user': myUserId });
       if (myRoomCount >= MAX_ROOMS_PER_USER) {

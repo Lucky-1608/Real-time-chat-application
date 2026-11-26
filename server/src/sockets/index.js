@@ -34,7 +34,7 @@ const ALLOWED_SOCKET_EVENTS = new Set([
  * Attaches Socket.io to an existing Node http.Server so REST and WebSocket
  * traffic share a single origin and port.
  */
-export function attachSockets(httpServer, app = null, { storageService } = {}) {
+export function attachSockets(httpServer, app = null, { storageService, floodControl } = {}) {
   const io = new Server(httpServer, {
     maxHttpBufferSize: MAX_HTTP_BUFFER_BYTES,
     cors: {
@@ -234,7 +234,7 @@ export function attachSockets(httpServer, app = null, { storageService } = {}) {
       }
     });
 
-    registerChatHandlers(io, socket, presence, { storageService });
+    registerChatHandlers(io, socket, presence, { storageService, floodControl });
 
     socket.on('disconnecting', () => {
       for (const channel of socket.rooms) {

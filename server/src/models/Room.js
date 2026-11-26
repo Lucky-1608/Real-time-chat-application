@@ -60,6 +60,12 @@ const roomSchema = new mongoose.Schema(
     dmKey: {
       type: String,
     },
+    slowModeSeconds: {
+      type: Number,
+      default: 0,
+      min: 0,
+      max: 3600,
+    },
   },
   {
     timestamps: true,

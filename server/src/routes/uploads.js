@@ -1,12 +1,18 @@
 import { Router } from 'express';
+import User from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { presignUploadSchema } from '../utils/validators.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
 import { defaultStorageService } from '../services/storage.js';
+import { defaultFloodControl } from '../services/floodControl.js';
 
-export function createUploadsRouter({ rateLimiter, storageService = defaultStorageService } = {}) {
+export function createUploadsRouter({
+  rateLimiter,
+  storageService = defaultStorageService,
+  floodControl = defaultFloodControl,
+} = {}) {
   const router = Router();
 
   router.use(requireAuth);
@@ -24,6 +30,9 @@ export function createUploadsRouter({ rateLimiter, storageService = defaultStora
 
       const { roomId, contentType, size } = parsed.data;
       await getRoomIfMember(roomId, req.user.id);
+
+      const user = await User.findById(req.user.id, { createdAt: 1 }).lean();
+      floodControl.assertNewAccountAllowed(user?.createdAt, 'uploading files');
 
       const presigned = await storageService.createPresignedUpload({
         roomId,

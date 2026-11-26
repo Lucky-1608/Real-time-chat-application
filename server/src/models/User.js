@@ -22,6 +22,11 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    globalRole: {
+      type: String,
+      enum: ['user', 'admin'],
+      default: 'user',
+    },
     failedLoginAttempts: {
       type: Number,
       default: 0,
@@ -64,6 +69,7 @@ const userSchema = new mongoose.Schema(
         return {
           id: ret._id.toString(),
           username: ret.username,
+          globalRole: ret.globalRole || 'user',
           twoFactorEnabled: Boolean(ret.twoFactorEnabled),
           createdAt: ret.createdAt,
         };

@@ -16,6 +16,7 @@ import { issueCsrfToken, requireCsrf } from '../middleware/csrf.js';
 import { addUserToGeneralRoom } from '../services/roomMigration.js';
 import { defaultPasswordService, getBackoffSeconds } from '../services/passwordService.js';
 import { decryptField, encryptField } from '../services/cryptoService.js';
+import { audit } from '../services/auditService.js';
 import {
   consumeRecoveryCode,
   generateRecoveryCodes,
@@ -124,6 +125,15 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
       const token = signToken({ ...serializedUser, sid: session._id.toString() });
       setRefreshCookie(res, rawRefreshToken);
 
+      await audit('auth.register', {
+        actor: serializedUser.id,
+        targetType: 'user',
+        targetId: serializedUser.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+      });
+
       res.status(201).json({
         token,
         user: serializedUser,
@@ -148,6 +158,13 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
         // Constant-time defense: run a full argon2 verification against a dummy hash
         // so response timing does not reveal whether a username exists.
         await passwordService.verifyDummyPassword(password);
+        await audit('auth.login.failure', {
+          targetType: 'user',
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          requestId: req.id,
+          metadata: { reason: 'invalid_credentials' },
+        });
         throw new AppError('Invalid username or password', 401);
       }
 
@@ -161,6 +178,15 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
           Math.ceil((user.loginLockedUntil.getTime() - now) / 1000)
         );
         res.set('Retry-After', String(retryAfterSec));
+        await audit('auth.login.failure', {
+          actor: user._id,
+          targetType: 'user',
+          targetId: user._id.toString(),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          requestId: req.id,
+          metadata: { reason: 'account_locked' },
+        });
         throw new AppError('Invalid username or password', 401);
       }
 
@@ -177,6 +203,15 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
           res.set('Retry-After', String(backoffSec));
         }
         await user.save();
+        await audit('auth.login.failure', {
+          actor: user._id,
+          targetType: 'user',
+          targetId: user._id.toString(),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          requestId: req.id,
+          metadata: { reason: 'invalid_credentials', attempts: user.failedLoginAttempts },
+        });
         throw new AppError('Invalid username or password', 401);
       }
 
@@ -213,6 +248,15 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
 
       const token = signToken({ ...serializedUser, sid: session._id.toString() });
       setRefreshCookie(res, rawRefreshToken);
+
+      await audit('auth.login.success', {
+        actor: serializedUser.id,
+        targetType: 'session',
+        targetId: session._id.toString(),
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+      });
 
       res.status(200).json({
         token,
@@ -268,7 +312,14 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
         exceptSessionId: req.user.sid,
       });
       disconnectSessionSockets(req.app.locals.io, revokedIds, 'Two-factor authentication enabled');
-      console.info(`[audit] 2FA enabled for user=${req.user.id}`);
+      await audit('auth.2fa.enable', {
+        actor: req.user.id,
+        targetType: 'user',
+        targetId: req.user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+      });
 
       res.status(200).json({ ok: true, recoveryCodes: plaintextCodes });
     })
@@ -312,7 +363,14 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
       } else if (recoveryCode) {
         verified = await consumeRecoveryCode(user._id, recoveryCode);
         if (verified) {
-          console.info(`[audit] Recovery code consumed for user=${user._id.toString()}`);
+          await audit('auth.2fa.recovery_used', {
+            actor: user._id,
+            targetType: 'user',
+            targetId: user._id.toString(),
+            ip: req.ip,
+            userAgent: req.headers['user-agent'],
+            requestId: req.id,
+          });
         }
       }
 
@@ -324,6 +382,15 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
           res.set('Retry-After', String(backoffSec));
         }
         await user.save();
+        await audit('auth.login.failure', {
+          actor: user._id,
+          targetType: 'user',
+          targetId: user._id.toString(),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          requestId: req.id,
+          metadata: { reason: 'invalid_mfa' },
+        });
         throw new AppError('Invalid verification code', 401);
       }
 
@@ -343,6 +410,16 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
 
       const token = signToken({ ...serializedUser, sid: session._id.toString() });
       setRefreshCookie(res, rawRefreshToken);
+
+      await audit('auth.login.success', {
+        actor: serializedUser.id,
+        targetType: 'session',
+        targetId: session._id.toString(),
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+        metadata: { mfa: true },
+      });
 
       res.status(200).json({ token, user: serializedUser });
     })
@@ -384,7 +461,14 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
         exceptSessionId: req.user.sid,
       });
       disconnectSessionSockets(req.app.locals.io, revokedIds, 'Two-factor authentication disabled');
-      console.info(`[audit] 2FA disabled for user=${req.user.id}`);
+      await audit('auth.2fa.disable', {
+        actor: req.user.id,
+        targetType: 'user',
+        targetId: req.user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+      });
 
       res.status(200).json({ ok: true });
     })
@@ -422,6 +506,15 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
       });
       disconnectSessionSockets(req.app.locals.io, revokedIds, 'Password changed on another device');
 
+      await audit('auth.password_change', {
+        actor: req.user.id,
+        targetType: 'user',
+        targetId: req.user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+      });
+
       res.status(200).json({ ok: true });
     })
   );
@@ -436,6 +529,14 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
       if (result.status === 'reuse_detected') {
         clearRefreshCookie(res);
         disconnectSessionSockets(req.app.locals.io, result.revokedSessionIds);
+        await audit('auth.token_reuse', {
+          targetType: 'session',
+          targetId: result.revokedSessionIds?.[0] || null,
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          requestId: req.id,
+          metadata: { revokedCount: result.revokedSessionIds?.length || 0 },
+        });
         throw new AppError('Session expired. Please sign in again.', 401);
       }
 
@@ -474,6 +575,14 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
 
       if (revoked) {
         disconnectSessionSockets(req.app.locals.io, [revoked._id.toString()]);
+        await audit('auth.logout', {
+          actor: revoked.user,
+          targetType: 'session',
+          targetId: revoked._id.toString(),
+          ip: req.ip,
+          userAgent: req.headers['user-agent'],
+          requestId: req.id,
+        });
       }
 
       res.status(200).json({ ok: true });
@@ -492,6 +601,15 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
         clearRefreshCookie(res);
       }
       disconnectSessionSockets(req.app.locals.io, revokedIds, 'Signed out from all devices');
+      await audit('auth.logout_all', {
+        actor: req.user.id,
+        targetType: 'user',
+        targetId: req.user.id,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+        metadata: { keepCurrent, revokedCount: revokedIds.length },
+      });
       res.status(200).json({ ok: true });
     })
   );
@@ -518,6 +636,14 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
         clearRefreshCookie(res);
       }
       disconnectSessionSockets(req.app.locals.io, [sid], 'You were signed out');
+      await audit('auth.session.revoke', {
+        actor: req.user.id,
+        targetType: 'session',
+        targetId: sid,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+      });
       res.status(200).json({ ok: true, id: sid });
     })
   );

@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken';
 import mongoose from 'mongoose';
 import env from '../config/env.js';
 import Session from '../models/Session.js';
+import User from '../models/User.js';
 import { isSessionActive, touchSessionActivity } from '../services/sessionService.js';
 import { AppError } from './errorHandler.js';
 
@@ -67,6 +68,21 @@ export async function requireAuth(req, _res, next) {
     }
 
     req.user = user;
+    return next();
+  } catch (err) {
+    return next(err);
+  }
+}
+
+export async function requireAdmin(req, _res, next) {
+  try {
+    if (!req.user?.id) {
+      return next(new AppError('Unauthorized', 401));
+    }
+    const user = await User.findById(req.user.id, { globalRole: 1 }).lean();
+    if (!user || user.globalRole !== 'admin') {
+      return next(new AppError('Admin access required', 403));
+    }
     return next();
   } catch (err) {
     return next(err);

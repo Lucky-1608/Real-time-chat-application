@@ -13,9 +13,11 @@ import { createMessagesRouter } from './routes/messages.js';
 import { createRoomsRouter } from './routes/rooms.js';
 import { createUsersRouter } from './routes/users.js';
 import { createUploadsRouter } from './routes/uploads.js';
+import { createAdminRouter } from './routes/admin.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
 import { defaultPasswordService } from './services/passwordService.js';
+import { defaultFloodControl } from './services/floodControl.js';
 
 /**
  * Builds the Express application without binding a port so it can be
@@ -29,6 +31,7 @@ export function createApp({
   storageService = defaultStorageService,
   summaryService = defaultSummaryService,
   passwordService = defaultPasswordService,
+  floodControl = defaultFloodControl,
 } = {}) {
   mongoose.set('strictQuery', true);
   const app = express();
@@ -103,10 +106,12 @@ export function createApp({
       summaryRateLimiter: summaryRateLimiter ?? createSummaryRateLimiter(),
       storageService,
       summaryService,
+      floodControl,
     })
   );
   app.use('/api/users', createUsersRouter({ rateLimiter: sharedApiLimiter }));
-  app.use('/api/uploads', createUploadsRouter({ rateLimiter: sharedApiLimiter, storageService }));
+  app.use('/api/uploads', createUploadsRouter({ rateLimiter: sharedApiLimiter, storageService, floodControl }));
+  app.use('/api/admin', createAdminRouter({ rateLimiter: sharedApiLimiter }));
 
   // Deprecated in favor of GET /api/rooms/:id/messages; kept for backward compatibility with General room clients.
   app.use('/api/messages', createMessagesRouter());
