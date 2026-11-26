@@ -522,6 +522,13 @@ export function useChat() {
       }
     };
 
+    const handleMemberUpdated = ({ roomId, members }) => {
+      if (!roomId || !Array.isArray(members)) return;
+      setRooms((prev) =>
+        prev.map((r) => (r._id === roomId ? { ...r, members } : r))
+      );
+    };
+
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
@@ -541,6 +548,7 @@ export function useChat() {
     socket.on('room:created', handleRoomCreated);
     socket.on('room:joined', handleRoomJoined);
     socket.on('room:left', handleRoomLeft);
+    socket.on('member:updated', handleMemberUpdated);
 
     return () => {
       socket.io.off('reconnect_attempt', handleReconnectAttempt);
@@ -796,6 +804,21 @@ export function useChat() {
     await apiFetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
   }, []);
 
+  const changeMemberRole = useCallback(async (roomId, targetUserId, role) => {
+    const data = await apiFetch(`/api/rooms/${roomId}/members/${targetUserId}/role`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+    setRooms((prev) => prev.map((r) => (r._id === roomId ? data.room : r)));
+    return data.room;
+  }, []);
+
+  const removeMember = useCallback(async (roomId, targetUserId) => {
+    await apiFetch(`/api/rooms/${roomId}/members/${targetUserId}`, {
+      method: 'DELETE',
+    });
+  }, []);
+
   const requestSummary = useCallback(async (roomId, { force = false } = {}) => {
     if (!roomId) return;
     setSummaryLoadingByRoom((prev) => ({ ...prev, [roomId]: true }));
@@ -861,6 +884,8 @@ export function useChat() {
     inviteMembers,
     leaveRoom,
     deleteRoom,
+    changeMemberRole,
+    removeMember,
     requestSummary,
     dismissSummary,
   };

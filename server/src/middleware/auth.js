@@ -4,6 +4,7 @@ import env from '../config/env.js';
 import Session from '../models/Session.js';
 import User from '../models/User.js';
 import { isSessionActive, touchSessionActivity } from '../services/sessionService.js';
+import { can } from '../services/permissions.js';
 import { AppError } from './errorHandler.js';
 
 export function signToken(user) {
@@ -80,7 +81,7 @@ export async function requireAdmin(req, _res, next) {
       return next(new AppError('Unauthorized', 401));
     }
     const user = await User.findById(req.user.id, { globalRole: 1 }).lean();
-    if (!user || user.globalRole !== 'admin') {
+    if (!can(user, 'admin.audit.read')) {
       return next(new AppError('Admin access required', 403));
     }
     return next();

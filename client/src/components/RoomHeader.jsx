@@ -11,6 +11,8 @@ export default function RoomHeader({
   onInviteClick,
   onLeaveRoom,
   onDeleteRoom,
+  onChangeMemberRole,
+  onRemoveMember,
   onStartDm,
   onSummarize,
   summaryLoading = false,
@@ -22,7 +24,10 @@ export default function RoomHeader({
   const isDm = room?.type === 'dm';
   const partnerOnline = isDm && room?.otherUser?.id && onlineUserIds.has(room.otherUser.id);
   const myMember = room?.members?.find((m) => m.user?.id === currentUser?.id);
-  const isOwner = myMember?.role === 'owner';
+  const myRole = myMember?.role || 'member';
+  const isOwner = myRole === 'owner';
+  const canInvite = ['owner', 'admin', 'moderator'].includes(myRole);
+  const canManageRoles = ['owner', 'admin'].includes(myRole);
   const isGeneral = room?.type === 'public' && room?.name?.toLowerCase() === 'general';
 
   return (
@@ -76,7 +81,7 @@ export default function RoomHeader({
           </button>
         )}
 
-        {room?.type === 'private' && isOwner && (
+        {room?.type === 'private' && canInvite && (
           <button type="button" className={styles.actionBtn} onClick={onInviteClick}>
             Invite
           </button>
@@ -152,8 +157,30 @@ export default function RoomHeader({
                   />
                   <span className={styles.memberName}>
                     {name}
-                    {m.role === 'owner' ? ' (owner)' : ''}
+                    {m.role && m.role !== 'member' ? ` (${m.role})` : ''}
                   </span>
+                  {!isSelf && id && canManageRoles && m.role !== 'owner' && (isOwner || m.role !== 'admin') && (
+                    <>
+                      <select
+                        aria-label={`Change role for ${name}`}
+                        value={m.role || 'member'}
+                        onChange={(e) => onChangeMemberRole?.(room._id, id, e.target.value)}
+                        className={styles.dmQuickBtn}
+                      >
+                        <option value="member">member</option>
+                        <option value="moderator">moderator</option>
+                        {isOwner && <option value="admin">admin</option>}
+                        {isOwner && <option value="owner">owner (transfer)</option>}
+                      </select>
+                      <button
+                        type="button"
+                        className={styles.dmQuickBtn}
+                        onClick={() => onRemoveMember?.(room._id, id)}
+                      >
+                        Kick
+                      </button>
+                    </>
+                  )}
                   {!isSelf && id && (
                     <button
                       type="button"

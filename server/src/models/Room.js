@@ -9,7 +9,7 @@ const memberSchema = new mongoose.Schema(
     },
     role: {
       type: String,
-      enum: ['owner', 'member'],
+      enum: ['owner', 'admin', 'moderator', 'member'],
       default: 'member',
       required: true,
     },

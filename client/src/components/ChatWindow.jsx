@@ -55,6 +55,8 @@ export default function ChatWindow() {
     inviteMembers,
     leaveRoom,
     deleteRoom,
+    changeMemberRole,
+    removeMember,
     requestSummary,
     dismissSummary,
   } = useChat();
@@ -78,7 +80,9 @@ export default function ChatWindow() {
     : '#General';
 
   const isRoomOwner = Boolean(
-    activeRoom?.members?.some((m) => m.user?.id === user?.id && m.role === 'owner')
+    activeRoom?.members?.some(
+      (m) => m.user?.id === user?.id && ['owner', 'admin', 'moderator'].includes(m.role)
+    )
   );
 
   const anyDrawerOpen = roomsDrawerOpen || usersDrawerOpen;
@@ -112,6 +116,8 @@ export default function ChatWindow() {
             onInviteClick={() => setActiveModal('invite-members')}
             onLeaveRoom={leaveRoom}
             onDeleteRoom={deleteRoom}
+            onChangeMemberRole={changeMemberRole}
+            onRemoveMember={removeMember}
             onStartDm={startDm}
             onSummarize={() => requestSummary(activeRoomId)}
             summaryLoading={summaryLoading}

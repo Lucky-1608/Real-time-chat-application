@@ -171,3 +171,22 @@ export const twoFactorDisableSchema = z.object({
   password: z.string().min(1, 'Password is required'),
   code: z.string().trim().regex(/^\d{6}$/, 'Enter a 6-digit verification code'),
 });
+
+export const changeMemberRoleSchema = z.object({
+  role: z.enum(['owner', 'admin', 'moderator', 'member']),
+});
+
+export const updateRoomSchema = z
+  .object({
+    name: z
+      .string()
+      .trim()
+      .min(3, 'Room name must be at least 3 characters')
+      .max(30, 'Room name must be at most 30 characters')
+      .regex(/^[a-zA-Z0-9 _-]+$/, 'Room name contains invalid characters')
+      .optional(),
+    slowModeSeconds: z.coerce.number().int().min(0).max(3600).optional(),
+  })
+  .refine((d) => d.name !== undefined || d.slowModeSeconds !== undefined, {
+    message: 'At least one room setting must be provided',
+  });

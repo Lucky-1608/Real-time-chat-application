@@ -7,6 +7,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import {
+  changeMemberRoleSchema,
   createDmSchema,
   createRoomSchema,
   inviteMembersSchema,
@@ -14,8 +15,11 @@ import {
   publicRoomsQuerySchema,
   roomChangesQuerySchema,
   roomSummarySchema,
+  updateRoomSchema,
 } from '../utils/validators.js';
-import { assertRoomOwner, getRoomIfMember, parseRoomId } from '../services/roomAccess.js';
+import { getRoomIfMember, parseRoomId } from '../services/roomAccess.js';
+import { assertCan } from '../services/permissions.js';
+import { audit } from '../services/auditService.js';
 import {
   getRoomChanges,
   getRoomMessages,
@@ -300,7 +304,7 @@ export function createRoomsRouter({
     })
   );
 
-  // POST /api/rooms/:id/members — invite users to a private room (owner only)
+  // POST /api/rooms/:id/members — invite users to a private room (owner/admin/moderator)
   router.post(
     '/:id/members',
     asyncHandler(async (req, res) => {
@@ -309,10 +313,16 @@ export function createRoomsRouter({
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid member list', 400);
       }
 
-      const { room } = await assertRoomOwner(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
       if (room.type !== 'private') {
-        throw new AppError('Only private rooms support owner invitations', 400);
+        throw new AppError('Only private rooms support invitations', 400);
       }
+      assertCan(
+        req.user,
+        'member.invite',
+        { room },
+        'You do not have permission to invite members to this room'
+      );
 
       const existingIds = new Set(room.members.map((m) => m.user.toString()));
       const newIds = [...new Set(parsed.data.memberIds)].filter((id) => !existingIds.has(id));
@@ -370,7 +380,10 @@ export function createRoomsRouter({
         throw new AppError('Direct messages cannot be left', 400);
       }
       if (member.role === 'owner') {
-        throw new AppError('Room owner must transfer ownership or delete the room first', 400);
+        const ownerCount = room.members.filter((m) => m.role === 'owner').length;
+        if (ownerCount <= 1) {
+          throw new AppError('Room owner must transfer ownership or delete the room first', 400);
+        }
       }
 
       await Room.updateOne(
@@ -390,11 +403,172 @@ export function createRoomsRouter({
     })
   );
 
+  // PATCH /api/rooms/:id — rename room or update room settings (owner/admin)
+  router.patch(
+    '/:id',
+    asyncHandler(async (req, res) => {
+      const parsed = updateRoomSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid room settings', 400);
+      }
+
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      if (room.type === 'dm') {
+        throw new AppError('Direct messages cannot be modified', 400);
+      }
+
+      if (parsed.data.name !== undefined) {
+        assertCan(req.user, 'room.rename', { room });
+        if (room.nameLower === 'general') {
+          throw new AppError('The General room cannot be renamed', 400);
+        }
+        room.name = parsed.data.name;
+      }
+      if (parsed.data.slowModeSeconds !== undefined) {
+        assertCan(req.user, 'room.settings', { room });
+        room.slowModeSeconds = parsed.data.slowModeSeconds;
+      }
+
+      await room.save();
+      const populated = await Room.findById(room._id).populate('members.user', 'username').lean();
+      const serialized = serializeRoom(populated, req.user.id);
+
+      const io = req.app.locals.io;
+      if (io) {
+        io.to(`room:${room._id.toString()}`).emit('room:updated', {
+          roomId: room._id.toString(),
+          name: room.name,
+          slowModeSeconds: room.slowModeSeconds,
+        });
+      }
+
+      res.status(200).json({ room: serialized });
+    })
+  );
+
+  // PATCH /api/rooms/:id/members/:userId/role — change a member's role or transfer ownership
+  router.patch(
+    '/:id/members/:userId/role',
+    asyncHandler(async (req, res) => {
+      const parsed = changeMemberRoleSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid role', 400);
+      }
+
+      const targetUserId = parseRoomId(req.params.userId);
+      const newRole = parsed.data.role;
+      const { room, member: actorMember } = await getRoomIfMember(req.params.id, req.user.id);
+
+      const targetMember = room.members.find((m) => m.user.toString() === targetUserId);
+      if (!targetMember) {
+        throw new AppError('Target member not found in this room', 404);
+      }
+
+      if (actorMember.role === 'owner' && targetMember.role === 'owner' && newRole !== 'owner') {
+        const ownerCount = room.members.filter((m) => m.role === 'owner').length;
+        if (ownerCount <= 1) {
+          throw new AppError('The last room owner cannot be demoted without transferring ownership', 400);
+        }
+      }
+
+      const action = newRole === 'owner' ? 'ownership.transfer' : 'role.change';
+      assertCan(req.user, action, {
+        room,
+        targetUser: { id: targetUserId, role: targetMember.role },
+        targetRole: newRole,
+      });
+
+      const previousRole = targetMember.role;
+      if (newRole === 'owner') {
+        actorMember.role = 'admin';
+        targetMember.role = 'owner';
+      } else {
+        targetMember.role = newRole;
+      }
+      await room.save();
+
+      await audit('room.role_change', {
+        actor: req.user.id,
+        targetType: 'room',
+        targetId: room._id.toString(),
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+        metadata: {
+          targetUserId,
+          previousRole,
+          newRole,
+        },
+      });
+
+      const populated = await Room.findById(room._id).populate('members.user', 'username').lean();
+      const serialized = serializeRoom(populated, req.user.id);
+      const roomIdStr = room._id.toString();
+
+      const io = req.app.locals.io;
+      if (io) {
+        io.to(`room:${roomIdStr}`).emit('member:updated', {
+          roomId: roomIdStr,
+          userId: targetUserId,
+          role: newRole,
+          members: serialized.members,
+        });
+      }
+
+      res.status(200).json({ room: serialized });
+    })
+  );
+
+  // DELETE /api/rooms/:id/members/:userId — remove a member from a room
+  router.delete(
+    '/:id/members/:userId',
+    asyncHandler(async (req, res) => {
+      const targetUserId = parseRoomId(req.params.userId);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+
+      const targetMember = room.members.find((m) => m.user.toString() === targetUserId);
+      if (!targetMember) {
+        throw new AppError('Target member not found in this room', 404);
+      }
+
+      assertCan(req.user, 'member.remove', {
+        room,
+        targetUser: { id: targetUserId, role: targetMember.role },
+      });
+
+      await Room.updateOne(
+        { _id: room._id },
+        { $pull: { members: { user: targetUserId } } }
+      );
+
+      await audit('room.member_remove', {
+        actor: req.user.id,
+        targetType: 'room',
+        targetId: room._id.toString(),
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+        metadata: { targetUserId, removedRole: targetMember.role },
+      });
+
+      const roomIdStr = room._id.toString();
+      const io = req.app.locals.io;
+      if (io) {
+        io.in(`user:${targetUserId}`).socketsLeave(`room:${roomIdStr}`);
+        io.to(`user:${targetUserId}`).emit('room:left', { roomId: roomIdStr });
+        io.to(`room:${roomIdStr}`).emit('room:left', { roomId: roomIdStr, userId: targetUserId });
+      }
+
+      res.status(200).json({ ok: true, roomId: roomIdStr, userId: targetUserId });
+    })
+  );
+
   // DELETE /api/rooms/:id — delete a room (owner only, cannot delete General or DMs)
   router.delete(
     '/:id',
     asyncHandler(async (req, res) => {
-      const { room } = await assertRoomOwner(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      assertCan(req.user, 'room.delete', { room });
       if (room.type === 'dm' || room.nameLower === 'general') {
         throw new AppError('This room cannot be deleted', 400);
       }
@@ -470,6 +644,7 @@ export function createRoomsRouter({
 
       const { sinceMessageId, force } = parsed.data;
       const { room, member } = await getRoomIfMember(req.params.id, req.user.id);
+      assertCan(req.user, 'room.summary', { room });
 
       let sinceDate = member.lastReadAt || member.joinedAt || new Date(0);
       if (sinceMessageId) {

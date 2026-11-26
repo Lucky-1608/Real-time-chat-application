@@ -12,6 +12,7 @@ import {
 } from '../utils/validators.js';
 import { ensureGeneralRoom } from '../services/roomMigration.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
+import { can } from '../services/permissions.js';
 import { defaultStorageService } from '../services/storage.js';
 import { defaultFloodControl } from '../services/floodControl.js';
 import { audit } from '../services/auditService.js';
@@ -76,6 +77,10 @@ export function registerChatHandlers(
     try {
       const room = await resolveAuthorizedRoom(roomId, userId);
       const roomIdStr = room._id.toString();
+
+      if (!can(socket.data.user, 'message.send', { room })) {
+        return respond({ ok: false, error: 'You do not have permission to send messages here' });
+      }
 
       const slowCheck = floodControl.checkSlowMode({
         roomId: roomIdStr,
@@ -171,7 +176,7 @@ export function registerChatHandlers(
       if (msg.deletedAt) {
         return respond({ ok: false, error: 'Deleted messages cannot be edited' });
       }
-      if (msg.sender.toString() !== userId) {
+      if (!can(socket.data.user, 'message.edit_own', { room, message: msg })) {
         return respond({ ok: false, error: 'Only the author can edit this message' });
       }
       if (Date.now() - new Date(msg.createdAt).getTime() > EDIT_WINDOW_MS) {
@@ -212,15 +217,15 @@ export function registerChatHandlers(
     const { roomId, messageId } = parsed.data;
 
     try {
-      const { room, member } = await getRoomIfMember(roomId, userId);
+      const { room } = await getRoomIfMember(roomId, userId);
       const msg = await Message.findOne({ _id: messageId, room: room._id });
       if (!msg) {
         return respond({ ok: false, error: 'Message not found' });
       }
 
       const isAuthor = msg.sender.toString() === userId;
-      const isOwner = member.role === 'owner';
-      if (!isAuthor && !isOwner) {
+      const deleteAction = isAuthor ? 'message.delete_own' : 'message.delete_any';
+      if (!can(socket.data.user, deleteAction, { room, message: msg })) {
         return respond({ ok: false, error: 'Not authorized to delete this message' });
       }
 
@@ -232,7 +237,7 @@ export function registerChatHandlers(
         msg.deletedBy = userId;
         await msg.save();
 
-        if (!isAuthor && isOwner) {
+        if (!isAuthor) {
           await audit('message.delete_moderator', {
             actor: userId,
             targetType: 'message',
@@ -393,6 +398,10 @@ export function registerChatHandlers(
     try {
       const room = await resolveAuthorizedRoom(roomId, userId);
       const roomIdStr = room._id.toString();
+
+      if (!can(socket.data.user, 'message.send', { room })) {
+        return respond({ ok: false, error: 'You do not have permission to send messages here' });
+      }
 
       await Promise.all([
         Message.updateMany(

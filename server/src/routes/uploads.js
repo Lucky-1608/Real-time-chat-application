@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { presignUploadSchema } from '../utils/validators.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
+import { assertCan } from '../services/permissions.js';
 import { defaultStorageService } from '../services/storage.js';
 import { defaultFloodControl } from '../services/floodControl.js';
 
@@ -29,7 +30,8 @@ export function createUploadsRouter({
       }
 
       const { roomId, contentType, size } = parsed.data;
-      await getRoomIfMember(roomId, req.user.id);
+      const { room } = await getRoomIfMember(roomId, req.user.id);
+      assertCan(req.user, 'message.send', { room });
 
       const user = await User.findById(req.user.id, { createdAt: 1 }).lean();
       floodControl.assertNewAccountAllowed(user?.createdAt, 'uploading files');
