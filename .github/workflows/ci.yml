@@ -34,6 +34,7 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm run lint
+      - run: npm run openapi:check
       - run: npm run test:coverage
 
   client:
@@ -52,4 +53,13 @@ jobs:
       - run: npm ci
       - run: npm audit --audit-level=high
       - run: npm run lint
+      - run: npm test
       - run: npm run build
+
+  docker:
+    name: Docker Image Builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t pulsechat-server:ci ./server
+      - run: docker build -t pulsechat-client:ci ./client

@@ -1,0 +1,839 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "PulseChat API",
+    "version": "1.0.0",
+    "description": "Real-time chat application REST API (v1)"
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {},
+    "parameters": {}
+  },
+  "paths": {
+    "/api/v1/auth/register": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 20,
+                    "pattern": "^[a-zA-Z0-9_]+$"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 128
+                  }
+                },
+                "required": [
+                  "username",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "Auth"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "username": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": [
+                  "username",
+                  "password"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms": {
+      "post": {
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 30,
+                    "pattern": "^[a-zA-Z0-9 _-]+$"
+                  },
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "public",
+                      "private"
+                    ]
+                  },
+                  "memberIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "maxItems": 50,
+                    "default": []
+                  }
+                },
+                "required": [
+                  "name",
+                  "type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/dm": {
+      "post": {
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "userId": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "userId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}": {
+      "patch": {
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 30,
+                    "pattern": "^[a-zA-Z0-9 _-]+$"
+                  },
+                  "slowModeSeconds": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 0,
+                    "maximum": 3600
+                  },
+                  "announcementMode": {
+                    "type": "boolean"
+                  },
+                  "maxMembers": {
+                    "type": "integer",
+                    "minimum": 2,
+                    "maximum": 500
+                  },
+                  "allowInviteLinks": {
+                    "type": "boolean"
+                  },
+                  "disappearingTtlSeconds": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "enum": [
+                          0
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          3600
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          86400
+                        ]
+                      },
+                      {
+                        "type": "number",
+                        "enum": [
+                          604800
+                        ]
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}/members/{userId}/role": {
+      "patch": {
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "owner",
+                      "admin",
+                      "moderator",
+                      "member"
+                    ]
+                  }
+                },
+                "required": [
+                  "role"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}/invites": {
+      "post": {
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "expiresInHours": {
+                    "type": "number",
+                    "minimum": 1,
+                    "maximum": 720,
+                    "default": 24
+                  },
+                  "maxUses": {
+                    "type": "integer",
+                    "nullable": true,
+                    "minimum": 1,
+                    "maximum": 1000,
+                    "default": null
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}/draft": {
+      "put": {
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "text"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}/notifications": {
+      "patch": {
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "level": {
+                    "type": "string",
+                    "enum": [
+                      "all",
+                      "mentions",
+                      "muted"
+                    ]
+                  }
+                },
+                "required": [
+                  "level"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}/summary": {
+      "post": {
+        "tags": [
+          "Rooms"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sinceMessageId": {
+                    "type": "string"
+                  },
+                  "force": {
+                    "type": "boolean",
+                    "default": false
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}/scheduled": {
+      "post": {
+        "tags": [
+          "Scheduled"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2000
+                  },
+                  "sendAt": {
+                    "type": "string",
+                    "format": "date-time"
+                  }
+                },
+                "required": [
+                  "text",
+                  "sendAt"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/api/v1/rooms/{id}/polls": {
+      "post": {
+        "tags": [
+          "Polls"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "question": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "options": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "minItems": 2,
+                    "maxItems": 6
+                  },
+                  "multiple": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "anonymous": {
+                    "type": "boolean",
+                    "default": false
+                  },
+                  "closesAt": {
+                    "type": "string",
+                    "nullable": true,
+                    "format": "date-time",
+                    "default": null
+                  }
+                },
+                "required": [
+                  "question",
+                  "options"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/api/v1/messages/{id}/vote": {
+      "post": {
+        "tags": [
+          "Polls"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "optionIds": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1
+                    },
+                    "minItems": 1,
+                    "maxItems": 6
+                  }
+                },
+                "required": [
+                  "optionIds"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/uploads/presign": {
+      "post": {
+        "tags": [
+          "Uploads"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "roomId": {
+                    "type": "string"
+                  },
+                  "filename": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 255
+                  },
+                  "contentType": {
+                    "type": "string",
+                    "enum": [
+                      "image/png",
+                      "image/jpeg",
+                      "image/webp",
+                      "image/gif",
+                      "application/pdf",
+                      "text/plain"
+                    ]
+                  },
+                  "size": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 10485760
+                  }
+                },
+                "required": [
+                  "roomId",
+                  "filename",
+                  "contentType",
+                  "size"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/reports": {
+      "post": {
+        "tags": [
+          "Moderation"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "targetType": {
+                    "type": "string",
+                    "enum": [
+                      "message",
+                      "user"
+                    ]
+                  },
+                  "targetId": {
+                    "type": "string"
+                  },
+                  "roomId": {
+                    "type": "string"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "enum": [
+                      "spam",
+                      "harassment",
+                      "hate_speech",
+                      "inappropriate",
+                      "other"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 1000,
+                    "default": ""
+                  }
+                },
+                "required": [
+                  "targetType",
+                  "targetId",
+                  "roomId",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
+    },
+    "/api/v1/reports/{id}/action": {
+      "post": {
+        "tags": [
+          "Moderation"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "dismiss",
+                      "delete_message",
+                      "warn",
+                      "kick",
+                      "ban",
+                      "suspend"
+                    ]
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "default": ""
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/v1/users/me/status": {
+      "put": {
+        "tags": [
+          "Users"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "text": {
+                    "type": "string",
+                    "maxLength": 80,
+                    "default": ""
+                  },
+                  "emoji": {
+                    "type": "string",
+                    "maxLength": 16,
+                    "default": ""
+                  },
+                  "expiresAt": {
+                    "type": "string",
+                    "nullable": true,
+                    "format": "date-time",
+                    "default": null
+                  },
+                  "dndEnabled": {
+                    "type": "boolean"
+                  },
+                  "dndUntil": {
+                    "type": "string",
+                    "nullable": true,
+                    "format": "date-time"
+                  },
+                  "appearOffline": {
+                    "type": "boolean"
+                  },
+                  "globalMute": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    }
+  }
+}

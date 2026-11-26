@@ -1,0 +1,203 @@
+import { extendZodWithOpenApi, OpenAPIRegistry, OpenApiGeneratorV3 } from '@asteasolutions/zod-to-openapi';
+import { z } from 'zod';
+import {
+  changeMemberRoleSchema,
+  createDmSchema,
+  createInviteSchema,
+  createPollSchema,
+  createReportSchema,
+  createRoomSchema,
+  draftSchema,
+  loginSchema,
+  moderationActionSchema,
+  notificationLevelSchema,
+  presignUploadSchema,
+  registerSchema,
+  roomSummarySchema,
+  scheduleMessageSchema,
+  updateRoomSchema,
+  userStatusSchema,
+  votePollSchema,
+} from '../utils/validators.js';
+
+extendZodWithOpenApi(z);
+
+export function generateOpenApiDocument() {
+  const registry = new OpenAPIRegistry();
+
+  registry.registerComponent('securitySchemes', 'bearerAuth', {
+    type: 'http',
+    scheme: 'bearer',
+    bearerFormat: 'JWT',
+  });
+
+  const jsonBody = (schema) => ({
+    required: true,
+    content: { 'application/json': { schema } },
+  });
+
+  const okResp = { 200: { description: 'OK' } };
+  const createdResp = { 201: { description: 'Created' } };
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/auth/register',
+    tags: ['Auth'],
+    request: { body: jsonBody(registerSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/auth/login',
+    tags: ['Auth'],
+    request: { body: jsonBody(loginSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/rooms',
+    tags: ['Rooms'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(createRoomSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/rooms/dm',
+    tags: ['Rooms'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(createDmSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/rooms/{id}',
+    tags: ['Rooms'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(updateRoomSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/rooms/{id}/members/{userId}/role',
+    tags: ['Rooms'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(changeMemberRoleSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/rooms/{id}/invites',
+    tags: ['Rooms'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(createInviteSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: '/api/v1/rooms/{id}/draft',
+    tags: ['Rooms'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(draftSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/rooms/{id}/notifications',
+    tags: ['Rooms'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(notificationLevelSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/rooms/{id}/summary',
+    tags: ['Rooms'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(roomSummarySchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/rooms/{id}/scheduled',
+    tags: ['Scheduled'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(scheduleMessageSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/rooms/{id}/polls',
+    tags: ['Polls'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(createPollSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/messages/{id}/vote',
+    tags: ['Polls'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(votePollSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/uploads/presign',
+    tags: ['Uploads'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(presignUploadSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/reports',
+    tags: ['Moderation'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(createReportSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/reports/{id}/action',
+    tags: ['Moderation'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(moderationActionSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'put',
+    path: '/api/v1/users/me/status',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(userStatusSchema) },
+    responses: okResp,
+  });
+
+  const generator = new OpenApiGeneratorV3(registry.definitions);
+  return generator.generateDocument({
+    openapi: '3.0.3',
+    info: {
+      title: 'PulseChat API',
+      version: '1.0.0',
+      description: 'Real-time chat application REST API (v1)',
+    },
+    servers: [{ url: '/' }],
+  });
+}

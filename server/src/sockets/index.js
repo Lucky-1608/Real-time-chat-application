@@ -35,8 +35,9 @@ const ALLOWED_SOCKET_EVENTS = new Set([
  * Attaches Socket.io to an existing Node http.Server so REST and WebSocket
  * traffic share a single origin and port.
  */
-export function attachSockets(httpServer, app = null, { storageService, floodControl } = {}) {
+export function attachSockets(httpServer, app = null, { storageService, floodControl, adapter } = {}) {
   const io = new Server(httpServer, {
+    ...(adapter ? { adapter } : {}),
     maxHttpBufferSize: MAX_HTTP_BUFFER_BYTES,
     cors: {
       origin: env.CLIENT_URL,

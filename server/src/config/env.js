@@ -60,6 +60,9 @@ const envSchema = z
     FLAG_POLLS: z.enum(['true', 'false']).default('true'),
     FLAG_UPLOADS: z.enum(['true', 'false']).default('true'),
     FLAG_AI_SUMMARIES: z.enum(['true', 'false']).default('true'),
+
+    // Optional Redis URL for Socket.io adapter & distributed rate limiting
+    REDIS_URL: z.string().optional().default(''),
   })
   .superRefine((data, ctx) => {
     const anyS3Set = Boolean(

@@ -96,6 +96,10 @@ export async function refreshAccessToken() {
  */
 export async function apiFetch(path, options = {}) {
   const { skipAuth = false, headers = {}, _retried = false, ...rest } = options;
+  const versionedPath =
+    path.startsWith('/api/') && !path.startsWith('/api/v1/') && !path.startsWith('/api/auth/')
+      ? path.replace(/^\/api\//, '/api/v1/')
+      : path;
 
   const requestHeaders = {
     'Content-Type': 'application/json',
@@ -106,7 +110,7 @@ export async function apiFetch(path, options = {}) {
     requestHeaders.Authorization = `Bearer ${inMemoryToken}`;
   }
 
-  const response = await fetch(`${API_URL}${path}`, {
+  const response = await fetch(`${API_URL}${versionedPath}`, {
     ...rest,
     credentials: 'include',
     headers: requestHeaders,

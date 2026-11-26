@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import mongoose from 'mongoose';
 import rateLimit from 'express-rate-limit';
+import swaggerUi from 'swagger-ui-express';
 import env from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { sanitizeNoSql } from './middleware/sanitize.js';
@@ -23,6 +24,7 @@ import { defaultFloodControl } from './services/floodControl.js';
 import { requestIdMiddleware } from './services/logger.js';
 import { httpDurationHistogram, register as metricsRegister } from './services/metricsService.js';
 import { getFlags } from './services/featureFlags.js';
+import { generateOpenApiDocument } from './services/openapi.js';
 import { requireAdmin, requireAuth } from './middleware/auth.js';
 
 /**
@@ -136,35 +138,60 @@ export function createApp({
   });
 
   const sharedApiLimiter = apiRateLimiter ?? createApiRateLimiter();
+  const authRouter = createAuthRouter({
+    rateLimiter: authRateLimiter ?? createAuthRateLimiter(),
+    passwordService,
+  });
+  const roomsRouter = createRoomsRouter({
+    rateLimiter: sharedApiLimiter,
+    summaryRateLimiter: summaryRateLimiter ?? createSummaryRateLimiter(),
+    storageService,
+    summaryService,
+    floodControl,
+  });
+  const usersRouter = createUsersRouter({ rateLimiter: sharedApiLimiter });
+  const uploadsRouter = createUploadsRouter({
+    rateLimiter: sharedApiLimiter,
+    storageService,
+    floodControl,
+  });
+  const adminRouter = createAdminRouter({ rateLimiter: sharedApiLimiter });
+  const reportsRouter = createReportsRouter({ rateLimiter: sharedApiLimiter });
+  const accountRouter = createAccountRouter({
+    rateLimiter: sharedApiLimiter,
+    storageService,
+    passwordService,
+  });
+  const messagesRouter = createMessagesRouter();
 
-  app.use(
-    '/api/auth',
-    createAuthRouter({
-      rateLimiter: authRateLimiter ?? createAuthRateLimiter(),
-      passwordService,
-    })
-  );
-  app.use(
-    '/api/rooms',
-    createRoomsRouter({
-      rateLimiter: sharedApiLimiter,
-      summaryRateLimiter: summaryRateLimiter ?? createSummaryRateLimiter(),
-      storageService,
-      summaryService,
-      floodControl,
-    })
-  );
-  app.use('/api/users', createUsersRouter({ rateLimiter: sharedApiLimiter }));
-  app.use('/api/uploads', createUploadsRouter({ rateLimiter: sharedApiLimiter, storageService, floodControl }));
-  app.use('/api/admin', createAdminRouter({ rateLimiter: sharedApiLimiter }));
-  app.use('/api/reports', createReportsRouter({ rateLimiter: sharedApiLimiter }));
-  app.use(
-    '/api/account',
-    createAccountRouter({ rateLimiter: sharedApiLimiter, storageService, passwordService })
-  );
+  const openApiDoc = generateOpenApiDocument();
+  const docsMiddlewares = env.NODE_ENV === 'production' ? [requireAuth, requireAdmin] : [];
+  app.use('/api/docs', ...docsMiddlewares, swaggerUi.serve, swaggerUi.setup(openApiDoc));
 
-  // Deprecated in favor of GET /api/rooms/:id/messages; kept for backward compatibility with General room clients.
-  app.use('/api/messages', createMessagesRouter());
+  // Primary versioned API routes (/api/v1/*)
+  app.use('/api/v1/auth', authRouter);
+  app.use('/api/v1/rooms', roomsRouter);
+  app.use('/api/v1/users', usersRouter);
+  app.use('/api/v1/uploads', uploadsRouter);
+  app.use('/api/v1/admin', adminRouter);
+  app.use('/api/v1/reports', reportsRouter);
+  app.use('/api/v1/account', accountRouter);
+  app.use('/api/v1/messages', messagesRouter);
+
+  // Legacy /api/* aliases with Deprecation header for one release
+  const deprecateLegacyApi = (_req, res, next) => {
+    res.setHeader('Deprecation', 'true');
+    res.setHeader('Link', '</api/v1>; rel="successor-version"');
+    next();
+  };
+  app.use('/api/auth', deprecateLegacyApi, authRouter);
+  app.use('/api/rooms', deprecateLegacyApi, roomsRouter);
+  app.use('/api/users', deprecateLegacyApi, usersRouter);
+  app.use('/api/uploads', deprecateLegacyApi, uploadsRouter);
+  app.use('/api/admin', deprecateLegacyApi, adminRouter);
+  app.use('/api/reports', deprecateLegacyApi, reportsRouter);
+  app.use('/api/account', deprecateLegacyApi, accountRouter);
+  app.use('/api/messages', deprecateLegacyApi, messagesRouter);
 
   if (typeof registerRoutes === 'function') {
     registerRoutes(app);

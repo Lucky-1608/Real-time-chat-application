@@ -1,5 +1,7 @@
 import http from 'node:http';
 import mongoose from 'mongoose';
+import Redis from 'ioredis';
+import { createAdapter } from '@socket.io/redis-adapter';
 import env from './config/env.js';
 import app from './app.js';
 import { attachSockets } from './sockets/index.js';
@@ -11,9 +13,19 @@ async function startServer() {
   await mongoose.connect(env.MONGO_URI);
   console.log('[db] Connected to MongoDB');
 
+  let adapter;
+  let pubClient;
+  let subClient;
+  if (env.REDIS_URL) {
+    pubClient = new Redis(env.REDIS_URL);
+    subClient = pubClient.duplicate();
+    adapter = createAdapter(pubClient, subClient);
+    console.log('[redis] Socket.io Redis adapter enabled');
+  }
+
   // Share one HTTP server between Express and Socket.io on a single port.
   const httpServer = http.createServer(app);
-  const io = attachSockets(httpServer, app);
+  const io = attachSockets(httpServer, app, { adapter });
 
   const scheduler = createSchedulerService({
     io,
@@ -47,6 +59,7 @@ async function startServer() {
     io.disconnectSockets(false);
     httpServer.close(async () => {
       await mongoose.connection.close();
+      await Promise.allSettled([pubClient?.quit(), subClient?.quit()]);
       process.exit(0);
     });
   };
