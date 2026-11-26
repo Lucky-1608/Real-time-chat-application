@@ -29,6 +29,7 @@ import {
 } from '../utils/validators.js';
 import { getRoomIfMember, parseRoomId } from '../services/roomAccess.js';
 import { assertCan } from '../services/permissions.js';
+import { requireFeature } from '../services/featureFlags.js';
 import { audit } from '../services/auditService.js';
 import {
   getRoomChanges,
@@ -1019,6 +1020,7 @@ export function createRoomsRouter({
   // POST /api/rooms/:id/scheduled — schedule a message 1m to 30d ahead (max 20 pending per user)
   router.post(
     '/:id/scheduled',
+    requireFeature('scheduledMessages'),
     asyncHandler(async (req, res) => {
       const parsed = scheduleMessageSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1096,6 +1098,7 @@ export function createRoomsRouter({
   // POST /api/rooms/:id/polls — create a poll message
   router.post(
     '/:id/polls',
+    requireFeature('polls'),
     asyncHandler(async (req, res) => {
       const parsed = createPollSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -1160,6 +1163,7 @@ export function createRoomsRouter({
   // POST /api/rooms/:id/summary — AI "Catch me up" summary of unread (or recent 50) non-deleted messages
   router.post(
     '/:id/summary',
+    requireFeature('aiSummaries'),
     ...(summaryRateLimiter ? [summaryRateLimiter] : []),
     asyncHandler(async (req, res) => {
       const parsed = roomSummarySchema.safeParse(req.body || {});

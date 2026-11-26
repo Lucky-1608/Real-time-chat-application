@@ -51,6 +51,15 @@ const envSchema = z
     CLAMD_HOST: z.string().optional().default(''),
     CLAMD_PORT: z.coerce.number().int().positive().default(3310),
     SCAN_POLL_INTERVAL_MS: z.coerce.number().int().min(200).max(60_000).default(2000),
+
+    // Observability & Feature Flags
+    LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).optional(),
+    SENTRY_DSN: z.string().optional().default(''),
+    APP_VERSION: z.string().default('1.0.0'),
+    FLAG_SCHEDULED_MESSAGES: z.enum(['true', 'false']).default('true'),
+    FLAG_POLLS: z.enum(['true', 'false']).default('true'),
+    FLAG_UPLOADS: z.enum(['true', 'false']).default('true'),
+    FLAG_AI_SUMMARIES: z.enum(['true', 'false']).default('true'),
   })
   .superRefine((data, ctx) => {
     const anyS3Set = Boolean(

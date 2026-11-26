@@ -5,6 +5,7 @@ import { verifyToken } from '../middleware/auth.js';
 import Room from '../models/Room.js';
 import Session from '../models/Session.js';
 import { isSessionActive } from '../services/sessionService.js';
+import { activeSocketsGauge, socketEventsCounter } from '../services/metricsService.js';
 import { registerChatHandlers } from './chatHandlers.js';
 import { createPresenceTracker } from './presence.js';
 
@@ -157,11 +158,13 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
     }
 
     presence.addConnection(userId, username);
+    activeSocketsGauge.inc();
     io.emit('presence:list', presence.getOnlineUsers());
 
     // Per-event middleware: enforce event allowlist, global rate limit, and token expiration.
     socket.use((packet, next) => {
       const [eventName, ...args] = packet;
+      socketEventsCounter.inc({ event: String(eventName || 'unknown') });
       const maybeAck = args[args.length - 1];
       const rejectWithAck = (msg) => {
         if (typeof maybeAck === 'function') {
@@ -246,6 +249,7 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
     });
 
     socket.on('disconnect', () => {
+      activeSocketsGauge.dec();
       if (expiryDisconnectTimer) {
         clearTimeout(expiryDisconnectTimer);
         expiryDisconnectTimer = null;

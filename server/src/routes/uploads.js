@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { presignUploadSchema } from '../utils/validators.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
 import { assertCan } from '../services/permissions.js';
+import { requireFeature } from '../services/featureFlags.js';
 import { defaultStorageService } from '../services/storage.js';
 import { defaultFloodControl } from '../services/floodControl.js';
 
@@ -23,6 +24,7 @@ export function createUploadsRouter({
 
   router.post(
     '/presign',
+    requireFeature('uploads'),
     asyncHandler(async (req, res) => {
       const parsed = presignUploadSchema.safeParse(req.body);
       if (!parsed.success) {

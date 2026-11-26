@@ -40,9 +40,11 @@ async function startServer() {
   });
 
   const shutdown = async (signal) => {
-    console.log(`[server] ${signal} received, shutting down gracefully...`);
+    console.log(`[server] ${signal} received, draining sockets and shutting down...`);
+    io.emit('server:draining', { message: 'Server is restarting, please reconnect shortly.' });
     scheduler.stop();
     scanWorker?.stop();
+    io.disconnectSockets(false);
     httpServer.close(async () => {
       await mongoose.connection.close();
       process.exit(0);

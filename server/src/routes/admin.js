@@ -6,6 +6,7 @@ import { AppError } from '../middleware/errorHandler.js';
 import { objectIdSchema } from '../utils/validators.js';
 import { audit, queryAuditEvents } from '../services/auditService.js';
 import { revokeAllUserSessions } from '../services/sessionService.js';
+import { FLAG_NAMES, getFlags, setFlag } from '../services/featureFlags.js';
 import User from '../models/User.js';
 import Room from '../models/Room.js';
 import Message from '../models/Message.js';
@@ -220,6 +221,40 @@ export function createAdminRouter({ rateLimiter } = {}) {
         scanRejectionsCount,
         messagesPerDay: messagesPerDay.map((d) => ({ date: d._id, count: d.count })),
       });
+    })
+  );
+
+  router.get(
+    '/flags',
+    asyncHandler(async (_req, res) => {
+      res.status(200).json({ flags: await getFlags({ bypassCache: true }) });
+    })
+  );
+
+  router.patch(
+    '/flags',
+    asyncHandler(async (req, res) => {
+      const schema = z.object({
+        flag: z.enum(FLAG_NAMES),
+        enabled: z.boolean(),
+      });
+      const parsed = schema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid flag payload', 400);
+      }
+
+      const flags = await setFlag(parsed.data.flag, parsed.data.enabled, req.user.id);
+      await audit('admin.flag_toggle', {
+        actor: req.user.id,
+        targetType: 'feature_flag',
+        targetId: parsed.data.flag,
+        ip: req.ip,
+        userAgent: req.headers['user-agent'],
+        requestId: req.id,
+        metadata: { enabled: parsed.data.enabled },
+      });
+
+      res.status(200).json({ flags });
     })
   );
 

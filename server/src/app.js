@@ -20,6 +20,10 @@ import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
 import { defaultPasswordService } from './services/passwordService.js';
 import { defaultFloodControl } from './services/floodControl.js';
+import { requestIdMiddleware } from './services/logger.js';
+import { httpDurationHistogram, register as metricsRegister } from './services/metricsService.js';
+import { getFlags } from './services/featureFlags.js';
+import { requireAdmin, requireAuth } from './middleware/auth.js';
 
 /**
  * Builds the Express application without binding a port so it can be
@@ -37,6 +41,18 @@ export function createApp({
 } = {}) {
   mongoose.set('strictQuery', true);
   const app = express();
+  app.use(requestIdMiddleware);
+  app.use((req, res, next) => {
+    const end = httpDurationHistogram.startTimer();
+    res.on('finish', () => {
+      end({
+        method: req.method,
+        route: req.route?.path || req.path || 'unknown',
+        status: String(res.statusCode),
+      });
+    });
+    next();
+  });
 
   app.use(
     helmet({
@@ -90,6 +106,33 @@ export function createApp({
       uptime: process.uptime(),
       timestamp: new Date().toISOString(),
     });
+  });
+
+  app.get('/ready', (_req, res) => {
+    const mongoReady = mongoose.connection.readyState === 1;
+    if (!mongoReady) {
+      return res.status(503).json({ status: 'not_ready', mongo: 'disconnected' });
+    }
+    return res.status(200).json({
+      status: 'ready',
+      mongo: 'connected',
+      storage: storageService.isConfigured() ? 'configured' : 'disabled',
+    });
+  });
+
+  app.get('/metrics', requireAuth, requireAdmin, async (_req, res) => {
+    res.set('Content-Type', metricsRegister.contentType);
+    res.status(200).send(await metricsRegister.metrics());
+  });
+
+  app.get('/api/v1/config', async (_req, res) => {
+    const flags = await getFlags();
+    res.status(200).json({ flags });
+  });
+
+  app.get('/api/config', async (_req, res) => {
+    const flags = await getFlags();
+    res.status(200).json({ flags });
   });
 
   const sharedApiLimiter = apiRateLimiter ?? createApiRateLimiter();
