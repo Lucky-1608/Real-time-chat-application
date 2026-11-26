@@ -17,9 +17,11 @@ const messageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    // Trade-off: originalText is intentionally not stored; soft-deleted messages
+    // clear text to "" so deleted content is never retained or leaked to clients.
     text: {
       type: String,
-      required: true,
+      default: '',
       trim: true,
       maxlength: 2000,
     },
@@ -29,6 +31,19 @@ const messageSchema = new mongoose.Schema(
         ref: 'User',
       },
     ],
+    editedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedAt: {
+      type: Date,
+      default: null,
+    },
+    deletedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -36,16 +51,23 @@ const messageSchema = new mongoose.Schema(
 );
 
 messageSchema.index({ room: 1, createdAt: -1 });
+messageSchema.index({ room: 1, updatedAt: -1 });
 
 export function serializeMessage(doc) {
+  const isDeleted = Boolean(doc.deletedAt);
+  const toIso = (d) => (d instanceof Date ? d.toISOString() : d || null);
+
   return {
     _id: doc._id.toString(),
     room: doc.room.toString(),
     sender: doc.sender.toString(),
     senderName: doc.senderName,
-    text: doc.text,
+    text: isDeleted ? '' : doc.text,
     readBy: (doc.readBy || []).map((id) => id.toString()),
-    createdAt: doc.createdAt instanceof Date ? doc.createdAt.toISOString() : doc.createdAt,
+    editedAt: isDeleted ? null : toIso(doc.editedAt),
+    deletedAt: toIso(doc.deletedAt),
+    createdAt: toIso(doc.createdAt),
+    updatedAt: toIso(doc.updatedAt),
   };
 }
 

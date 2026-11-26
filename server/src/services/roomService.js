@@ -138,3 +138,23 @@ export async function getRoomMessages({ roomId, userId, before, after, limit = 5
     hasMore,
   };
 }
+
+/**
+ * Fetches messages created, edited, or soft-deleted since a given updatedAt cursor
+ * so reconnecting or room-switching clients pick up edits and deletes.
+ */
+export async function getRoomChanges({ roomId, userId, since }) {
+  const { room } = await getRoomIfMember(roomId, userId);
+
+  const docs = await Message.find({
+    room: room._id,
+    updatedAt: { $gt: new Date(since) },
+  })
+    .sort({ updatedAt: 1 })
+    .limit(200)
+    .lean();
+
+  return {
+    changes: docs.map(serializeMessage),
+  };
+}

@@ -42,6 +42,8 @@ export default function ChatWindow() {
     emitTypingStart,
     emitTypingStop,
     markMessagesRead,
+    editMessage,
+    deleteMessage,
     createRoom,
     startDm,
     joinPublicRoom,
@@ -67,6 +69,10 @@ export default function ChatWindow() {
       ? `@${activeRoom.otherUser?.username || activeRoom.name}`
       : `#${activeRoom.name}`
     : '#General';
+
+  const isRoomOwner = Boolean(
+    activeRoom?.members?.some((m) => m.user?.id === user?.id && m.role === 'owner')
+  );
 
   const anyDrawerOpen = roomsDrawerOpen || usersDrawerOpen;
 
@@ -108,6 +114,7 @@ export default function ChatWindow() {
               roomId={activeRoomId}
               messages={messages}
               currentUserId={user?.id}
+              isRoomOwner={isRoomOwner}
               userDirectory={userDirectory}
               hasMore={hasMore}
               loadingHistory={loadingHistory}
@@ -115,6 +122,8 @@ export default function ChatWindow() {
               historyError={historyError}
               onLoadOlder={loadOlderMessages}
               onRetry={retryMessage}
+              onEdit={editMessage}
+              onDelete={deleteMessage}
               onMarkRead={markMessagesRead}
             />
             <TypingIndicator typingUsers={typingUsers} />

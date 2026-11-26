@@ -78,3 +78,26 @@ export const publicRoomsQuerySchema = z.object({
 export const userSearchQuerySchema = z.object({
   q: z.string().trim().max(30).optional().default(''),
 });
+
+export const messageEditSchema = z.object({
+  roomId: objectIdSchema,
+  messageId: z.string().refine((val) => mongoose.isValidObjectId(val), {
+    message: 'Invalid message ID',
+  }),
+  text: z
+    .string()
+    .trim()
+    .min(1, 'Message cannot be empty')
+    .max(2000, 'Message cannot exceed 2000 characters'),
+});
+
+export const messageDeleteSchema = z.object({
+  roomId: objectIdSchema,
+  messageId: z.string().refine((val) => mongoose.isValidObjectId(val), {
+    message: 'Invalid message ID',
+  }),
+});
+
+export const roomChangesQuerySchema = z.object({
+  since: z.string().datetime({ message: 'Invalid since cursor' }),
+});

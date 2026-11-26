@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import styles from './MessageItem.module.css';
 
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
+
 function formatTime(isoString) {
   if (!isoString) return '';
   const date = new Date(isoString);
@@ -11,17 +13,94 @@ function formatTime(isoString) {
 export default function MessageItem({
   message,
   isOwn,
+  isRoomOwner = false,
   isGrouped,
   userDirectory = {},
   onRetry,
+  onEdit,
+  onDelete,
   itemRef,
 }) {
   const [showReaders, setShowReaders] = useState(false);
-  const { _id, senderName, text, createdAt, status, error, readBy = [] } = message;
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState('');
+  const [editError, setEditError] = useState('');
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const {
+    _id,
+    room,
+    senderName,
+    text,
+    createdAt,
+    editedAt,
+    deletedAt,
+    status,
+    error,
+    readBy = [],
+  } = message;
+
+  const isDeleted = Boolean(deletedAt);
+  const isConfirmed = status !== 'sending' && status !== 'failed';
+  const withinEditWindow =
+    createdAt && Date.now() - new Date(createdAt).getTime() <= EDIT_WINDOW_MS;
+  const canEdit = isOwn && !isDeleted && isConfirmed && withinEditWindow;
+  const canDelete = (isOwn || isRoomOwner) && !isDeleted && isConfirmed;
 
   // Exclude sender from readBy when computing "Seen by N"
   const otherReaderIds = readBy.filter((id) => id !== message.sender);
   const readerNames = otherReaderIds.map((id) => userDirectory[id] || 'User');
+
+  function startEdit() {
+    setEditText(text);
+    setEditError('');
+    setIsEditing(true);
+    setConfirmDelete(false);
+  }
+
+  async function saveEdit() {
+    const trimmed = editText.trim();
+    if (!trimmed) {
+      setEditError('Message cannot be empty');
+      return;
+    }
+    if (trimmed === text) {
+      setIsEditing(false);
+      return;
+    }
+
+    setSavingEdit(true);
+    setEditError('');
+    try {
+      await onEdit?.(room, _id, trimmed);
+      setIsEditing(false);
+    } catch (err) {
+      setEditError(err.message || 'Failed to edit');
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  function handleEditKeyDown(e) {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      saveEdit();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsEditing(false);
+      setEditError('');
+    }
+  }
+
+  async function handleConfirmDelete() {
+    try {
+      await onDelete?.(room, _id);
+      setConfirmDelete(false);
+    } catch {
+      setConfirmDelete(false);
+    }
+  }
 
   return (
     <div
@@ -33,31 +112,111 @@ export default function MessageItem({
     >
       {!isOwn && !isGrouped && <span className={styles.sender}>{senderName}</span>}
 
-      <div className={`${styles.bubble} ${isOwn ? styles.ownBubble : styles.otherBubble}`}>
-        <p className={styles.text}>{text}</p>
-        <div className={styles.meta}>
-          <time className={styles.time} dateTime={createdAt}>
-            {formatTime(createdAt)}
-          </time>
+      <div className={styles.bubbleWrap}>
+        {(canEdit || canDelete) && !isEditing && (
+          <div className={styles.actions}>
+            {canEdit && (
+              <button type="button" className={styles.actionBtn} onClick={startEdit}>
+                Edit
+              </button>
+            )}
+            {canDelete && !confirmDelete && (
+              <button
+                type="button"
+                className={`${styles.actionBtn} ${styles.deleteAction}`}
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete
+              </button>
+            )}
+          </div>
+        )}
 
-          {isOwn && status === 'sending' && <span className={styles.status}>Sending…</span>}
-
-          {isOwn && status === 'sent' && otherReaderIds.length === 0 && (
-            <span className={styles.status}>Sent</span>
+        <div
+          className={`${styles.bubble} ${isOwn ? styles.ownBubble : styles.otherBubble} ${
+            isDeleted ? styles.deletedBubble : ''
+          }`}
+        >
+          {isDeleted ? (
+            <p className={styles.tombstone}>This message was deleted</p>
+          ) : isEditing ? (
+            <div className={styles.editBox}>
+              <textarea
+                className={styles.editInput}
+                value={editText}
+                onChange={(e) => setEditText(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                maxLength={2000}
+                rows={2}
+                autoFocus
+                disabled={savingEdit}
+                aria-label="Edit message"
+              />
+              {editError && <span className={styles.editError}>{editError}</span>}
+              <div className={styles.editControls}>
+                <button
+                  type="button"
+                  className={styles.saveBtn}
+                  onClick={saveEdit}
+                  disabled={savingEdit}
+                >
+                  {savingEdit ? 'Saving…' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  className={styles.cancelBtn}
+                  onClick={() => setIsEditing(false)}
+                  disabled={savingEdit}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className={styles.text}>{text}</p>
           )}
 
-          {isOwn && status === 'sent' && otherReaderIds.length > 0 && (
-            <button
-              type="button"
-              className={styles.seenBtn}
-              title={`Seen by ${readerNames.join(', ')}`}
-              onClick={() => setShowReaders((prev) => !prev)}
-            >
-              Seen by {otherReaderIds.length}
-            </button>
-          )}
+          <div className={styles.meta}>
+            {editedAt && !isDeleted && <span className={styles.editedTag}>(edited)</span>}
+            <time className={styles.time} dateTime={createdAt}>
+              {formatTime(createdAt)}
+            </time>
+
+            {isOwn && status === 'sending' && <span className={styles.status}>Sending…</span>}
+
+            {isOwn && !isDeleted && status === 'sent' && otherReaderIds.length === 0 && (
+              <span className={styles.status}>Sent</span>
+            )}
+
+            {isOwn && !isDeleted && status === 'sent' && otherReaderIds.length > 0 && (
+              <button
+                type="button"
+                className={styles.seenBtn}
+                title={`Seen by ${readerNames.join(', ')}`}
+                onClick={() => setShowReaders((prev) => !prev)}
+              >
+                Seen by {otherReaderIds.length}
+              </button>
+            )}
+          </div>
         </div>
       </div>
+
+      {confirmDelete && (
+        <div className={styles.confirmRow} role="alert">
+          <span>Delete message?</span>
+          <button type="button" className={styles.confirmYes} onClick={handleConfirmDelete}>
+            Confirm
+          </button>
+          <button
+            type="button"
+            className={styles.confirmNo}
+            onClick={() => setConfirmDelete(false)}
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {isOwn && showReaders && readerNames.length > 0 && (
         <div className={styles.readersList}>Seen by {readerNames.join(', ')}</div>

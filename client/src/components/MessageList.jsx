@@ -16,6 +16,7 @@ export default function MessageList({
   roomId,
   messages,
   currentUserId,
+  isRoomOwner,
   userDirectory,
   hasMore,
   loadingHistory,
@@ -23,6 +24,8 @@ export default function MessageList({
   historyError,
   onLoadOlder,
   onRetry,
+  onEdit,
+  onDelete,
   onMarkRead,
 }) {
   const {
@@ -181,9 +184,12 @@ export default function MessageList({
                 key={msg._id}
                 message={msg}
                 isOwn={msg.sender === currentUserId}
+                isRoomOwner={isRoomOwner}
                 isGrouped={isConsecutiveMessage(prev, msg)}
                 userDirectory={userDirectory}
                 onRetry={onRetry}
+                onEdit={onEdit}
+                onDelete={onDelete}
                 itemRef={(el) => setItemRef(msg._id, el)}
               />
             );

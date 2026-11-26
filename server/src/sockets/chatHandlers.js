@@ -1,11 +1,18 @@
 import Message, { serializeMessage } from '../models/Message.js';
 import Room from '../models/Room.js';
-import { messageReadSchema, messageSendSchema, objectIdSchema } from '../utils/validators.js';
+import {
+  messageDeleteSchema,
+  messageEditSchema,
+  messageReadSchema,
+  messageSendSchema,
+  objectIdSchema,
+} from '../utils/validators.js';
 import { ensureGeneralRoom } from '../services/roomMigration.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
 
 const RATE_WINDOW_MS = 10_000;
 const MAX_MESSAGES_PER_WINDOW = 10;
+export const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
 function isSocketRateLimited(timestamps, now) {
   // Evict timestamps outside the sliding 10-second window.
@@ -90,6 +97,111 @@ export function registerChatHandlers(io, socket, presence) {
       }
       console.error('[socket] Failed to persist message:', err);
       return respond({ ok: false, error: 'Failed to send message' });
+    }
+  });
+
+  socket.on('message:edit', async (payload, ack) => {
+    const respond = typeof ack === 'function' ? ack : () => {};
+
+    if (isSocketRateLimited(sendTimestamps, Date.now())) {
+      return respond({ ok: false, error: 'Rate limit exceeded. Please slow down.' });
+    }
+
+    const parsed = messageEditSchema.safeParse(payload);
+    if (!parsed.success) {
+      return respond({
+        ok: false,
+        error: parsed.error.issues[0]?.message || 'Invalid edit payload',
+      });
+    }
+
+    const { roomId, messageId, text } = parsed.data;
+
+    try {
+      const { room } = await getRoomIfMember(roomId, userId);
+      // Match both _id and room so a user cannot edit a message in another room via roomId mismatch.
+      const msg = await Message.findOne({ _id: messageId, room: room._id });
+      if (!msg) {
+        return respond({ ok: false, error: 'Message not found' });
+      }
+      if (msg.deletedAt) {
+        return respond({ ok: false, error: 'Deleted messages cannot be edited' });
+      }
+      if (msg.sender.toString() !== userId) {
+        return respond({ ok: false, error: 'Only the author can edit this message' });
+      }
+      if (Date.now() - new Date(msg.createdAt).getTime() > EDIT_WINDOW_MS) {
+        return respond({ ok: false, error: 'Edit window has expired' });
+      }
+
+      msg.text = text;
+      msg.editedAt = new Date();
+      await msg.save();
+
+      const serialized = serializeMessage(msg);
+      io.to(`room:${room._id.toString()}`).emit('message:updated', serialized);
+      return respond({ ok: true });
+    } catch (err) {
+      if (err.isOperational) {
+        return respond({ ok: false, error: err.message });
+      }
+      console.error('[socket] Failed to edit message:', err);
+      return respond({ ok: false, error: 'Failed to edit message' });
+    }
+  });
+
+  socket.on('message:delete', async (payload, ack) => {
+    const respond = typeof ack === 'function' ? ack : () => {};
+
+    if (isSocketRateLimited(sendTimestamps, Date.now())) {
+      return respond({ ok: false, error: 'Rate limit exceeded. Please slow down.' });
+    }
+
+    const parsed = messageDeleteSchema.safeParse(payload);
+    if (!parsed.success) {
+      return respond({
+        ok: false,
+        error: parsed.error.issues[0]?.message || 'Invalid delete payload',
+      });
+    }
+
+    const { roomId, messageId } = parsed.data;
+
+    try {
+      const { room, member } = await getRoomIfMember(roomId, userId);
+      const msg = await Message.findOne({ _id: messageId, room: room._id });
+      if (!msg) {
+        return respond({ ok: false, error: 'Message not found' });
+      }
+
+      const isAuthor = msg.sender.toString() === userId;
+      const isOwner = member.role === 'owner';
+      if (!isAuthor && !isOwner) {
+        return respond({ ok: false, error: 'Not authorized to delete this message' });
+      }
+
+      if (!msg.deletedAt) {
+        // Soft-delete: clear text so deleted content is never retained or leaked,
+        // while keeping the document for read receipts and unread counts.
+        msg.text = '';
+        msg.deletedAt = new Date();
+        msg.deletedBy = userId;
+        await msg.save();
+      }
+
+      io.to(`room:${room._id.toString()}`).emit('message:deleted', {
+        roomId: room._id.toString(),
+        messageId: msg._id.toString(),
+        deletedAt: msg.deletedAt.toISOString(),
+      });
+
+      return respond({ ok: true });
+    } catch (err) {
+      if (err.isOperational) {
+        return respond({ ok: false, error: err.message });
+      }
+      console.error('[socket] Failed to delete message:', err);
+      return respond({ ok: false, error: 'Failed to delete message' });
     }
   });
 

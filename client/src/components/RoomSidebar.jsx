@@ -93,7 +93,10 @@ export default function RoomSidebar({
                       </div>
                       {room.lastMessage && (
                         <p className={styles.preview}>
-                          {room.lastMessage.senderName}: {room.lastMessage.text}
+                          {room.lastMessage.senderName}:{' '}
+                          {room.lastMessage.deletedAt
+                            ? 'This message was deleted'
+                            : room.lastMessage.text}
                         </p>
                       )}
                     </div>
@@ -154,7 +157,10 @@ export default function RoomSidebar({
                       </div>
                       {room.lastMessage && (
                         <p className={styles.preview}>
-                          {room.lastMessage.senderName}: {room.lastMessage.text}
+                          {room.lastMessage.senderName}:{' '}
+                          {room.lastMessage.deletedAt
+                            ? 'This message was deleted'
+                            : room.lastMessage.text}
                         </p>
                       )}
                     </div>

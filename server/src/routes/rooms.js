@@ -12,9 +12,11 @@ import {
   inviteMembersSchema,
   messagesQuerySchema,
   publicRoomsQuerySchema,
+  roomChangesQuerySchema,
 } from '../utils/validators.js';
 import { assertRoomOwner, getRoomIfMember, parseRoomId } from '../services/roomAccess.js';
 import {
+  getRoomChanges,
   getRoomMessages,
   getRoomsWithPreviews,
   MAX_MEMBERS_PER_ROOM,
@@ -417,6 +419,25 @@ export function createRoomsRouter({ rateLimiter } = {}) {
         before,
         after,
         limit,
+      });
+
+      res.status(200).json(result);
+    })
+  );
+
+  // GET /api/rooms/:id/changes?since=<ISO> — syncs new, edited, and deleted messages
+  router.get(
+    '/:id/changes',
+    asyncHandler(async (req, res) => {
+      const parsed = roomChangesQuerySchema.safeParse(req.query);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid since parameter', 400);
+      }
+
+      const result = await getRoomChanges({
+        roomId: req.params.id,
+        userId: req.user.id,
+        since: parsed.data.since,
       });
 
       res.status(200).json(result);

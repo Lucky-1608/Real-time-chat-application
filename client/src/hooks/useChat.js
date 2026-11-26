@@ -190,20 +190,20 @@ export function useChat() {
             setLoadingByRoom((prev) => ({ ...prev, [activeRoomId]: false }));
           }
         }
-      } else if (latestConfirmed?.createdAt) {
-        // Show cached messages instantly and fetch only newer messages.
+      } else if (latestConfirmed) {
+        const sinceCursor = latestConfirmed.updatedAt || latestConfirmed.createdAt;
+        if (!sinceCursor) return;
+        // Show cached messages instantly and fetch new, edited, or deleted messages since cursor.
         try {
           const data = await apiFetch(
-            `/api/rooms/${activeRoomId}/messages?after=${encodeURIComponent(
-              latestConfirmed.createdAt
-            )}&limit=100`
+            `/api/rooms/${activeRoomId}/changes?since=${encodeURIComponent(sinceCursor)}`
           );
-          if (cancelled || !data.messages?.length) return;
+          if (cancelled || !data.changes?.length) return;
           setMessagesByRoom((prev) => ({
             ...prev,
-            [activeRoomId]: mergeUniqueMessages(prev[activeRoomId], data.messages),
+            [activeRoomId]: mergeUniqueMessages(prev[activeRoomId], data.changes),
           }));
-          registerUsers(data.messages.map((m) => ({ userId: m.sender, username: m.senderName })));
+          registerUsers(data.changes.map((m) => ({ userId: m.sender, username: m.senderName })));
         } catch {
           // Non-fatal catch-up error
         }
@@ -242,20 +242,23 @@ export function useChat() {
           currentRooms.map(async (r) => {
             socket.emit('room:subscribe', { roomId: r._id });
             const cached = messagesByRoomRef.current[r._id] || [];
-            const latest = [...cached]
-              .reverse()
-              .find((m) => m.status !== 'sending' && m.status !== 'failed');
-            if (!latest?.createdAt) return;
+            let maxUpdated = null;
+            for (const m of cached) {
+              if (m.status === 'sending' || m.status === 'failed') continue;
+              const ts = m.updatedAt || m.createdAt;
+              if (ts && (!maxUpdated || new Date(ts) > new Date(maxUpdated))) {
+                maxUpdated = ts;
+              }
+            }
+            if (!maxUpdated) return;
             try {
               const data = await apiFetch(
-                `/api/rooms/${r._id}/messages?after=${encodeURIComponent(
-                  latest.createdAt
-                )}&limit=100`
+                `/api/rooms/${r._id}/changes?since=${encodeURIComponent(maxUpdated)}`
               );
-              if (data.messages?.length > 0) {
+              if (data.changes?.length > 0) {
                 setMessagesByRoom((prev) => ({
                   ...prev,
-                  [r._id]: mergeUniqueMessages(prev[r._id], data.messages),
+                  [r._id]: mergeUniqueMessages(prev[r._id], data.changes),
                 }));
               }
             } catch {
@@ -298,6 +301,45 @@ export function useChat() {
       setRooms((prev) =>
         sortRoomsByActivity(
           prev.map((r) => (r._id === rId ? { ...r, lastMessage: incoming } : r))
+        )
+      );
+    };
+
+    const handleMessageUpdated = (updated) => {
+      const rId = updated.room;
+      setMessagesByRoom((prev) => ({
+        ...prev,
+        [rId]: mergeUniqueMessages(prev[rId], [updated]),
+      }));
+      setRooms((prev) =>
+        prev.map((r) =>
+          r._id === rId && r.lastMessage?._id === updated._id ? { ...r, lastMessage: updated } : r
+        )
+      );
+    };
+
+    const handleMessageDeleted = ({ roomId, messageId, deletedAt }) => {
+      if (!roomId || !messageId) return;
+      setMessagesByRoom((prev) => {
+        const list = prev[roomId];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [roomId]: list.map((m) =>
+            m._id === messageId
+              ? { ...m, text: '', deletedAt, updatedAt: deletedAt, editedAt: null }
+              : m
+          ),
+        };
+      });
+      setRooms((prev) =>
+        prev.map((r) =>
+          r._id === roomId && r.lastMessage?._id === messageId
+            ? {
+                ...r,
+                lastMessage: { ...r.lastMessage, text: '', deletedAt, editedAt: null },
+              }
+            : r
         )
       );
     };
@@ -412,6 +454,8 @@ export function useChat() {
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
     socket.on('connect_error', handleConnectError);
     socket.on('message:new', handleMessageNew);
+    socket.on('message:updated', handleMessageUpdated);
+    socket.on('message:deleted', handleMessageDeleted);
     socket.on('presence:list', handlePresenceList);
     socket.on('typing:start', handleTypingStart);
     socket.on('typing:stop', handleTypingStop);
@@ -560,6 +604,38 @@ export function useChat() {
     }
   }, []);
 
+  const editMessage = useCallback((roomId, messageId, text) => {
+    return new Promise((resolve, reject) => {
+      if (!socketRef.current?.connected) {
+        reject(new Error('Not connected'));
+        return;
+      }
+      socketRef.current.emit('message:edit', { roomId, messageId, text }, (ack) => {
+        if (ack?.ok) {
+          resolve();
+        } else {
+          reject(new Error(ack?.error || 'Failed to edit message'));
+        }
+      });
+    });
+  }, []);
+
+  const deleteMessage = useCallback((roomId, messageId) => {
+    return new Promise((resolve, reject) => {
+      if (!socketRef.current?.connected) {
+        reject(new Error('Not connected'));
+        return;
+      }
+      socketRef.current.emit('message:delete', { roomId, messageId }, (ack) => {
+        if (ack?.ok) {
+          resolve();
+        } else {
+          reject(new Error(ack?.error || 'Failed to delete message'));
+        }
+      });
+    });
+  }, []);
+
   // Room management actions
   const createRoom = useCallback(
     async ({ name, type, memberIds }) => {
@@ -650,6 +726,8 @@ export function useChat() {
     emitTypingStart,
     emitTypingStop,
     markMessagesRead,
+    editMessage,
+    deleteMessage,
     createRoom,
     startDm,
     joinPublicRoom,

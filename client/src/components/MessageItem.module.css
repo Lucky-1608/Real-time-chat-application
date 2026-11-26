@@ -91,6 +91,133 @@
   color: var(--text-secondary);
 }
 
+.bubbleWrap {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.ownRow .bubbleWrap {
+  flex-direction: row;
+}
+
+.otherRow .bubbleWrap {
+  flex-direction: row-reverse;
+}
+
+.actions {
+  display: flex;
+  gap: 0.25rem;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.row:hover .actions,
+.row:focus-within .actions {
+  opacity: 1;
+}
+
+.actionBtn {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.12rem 0.42rem;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.actionBtn:hover {
+  color: var(--text-primary);
+}
+
+.deleteAction:hover {
+  color: #fca5a5;
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.deletedBubble {
+  opacity: 0.72;
+}
+
+.tombstone {
+  margin: 0;
+  font-size: 0.88rem;
+  font-style: italic;
+  opacity: 0.85;
+}
+
+.editedTag {
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
+
+.editBox {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 220px;
+}
+
+.editInput {
+  width: 100%;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-input);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  resize: vertical;
+}
+
+.editError {
+  font-size: 0.74rem;
+  color: #fca5a5;
+}
+
+.editControls {
+  display: flex;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.saveBtn,
+.cancelBtn,
+.confirmYes,
+.confirmNo {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.2rem 0.55rem;
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.saveBtn {
+  background: var(--bg-app);
+  color: var(--text-primary);
+}
+
+.cancelBtn,
+.confirmNo {
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+}
+
+.confirmRow {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.confirmYes {
+  background: var(--danger);
+  color: #ffffff;
+}
+
 .failedRow {
   display: flex;
   align-items: center;
