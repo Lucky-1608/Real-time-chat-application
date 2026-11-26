@@ -43,6 +43,11 @@ export function useChat() {
 
   const [messagesByRoom, setMessagesByRoom] = useState({});
   const [hasMoreByRoom, setHasMoreByRoom] = useState({});
+  const [draftsByRoom, setDraftsByRoom] = useState({});
+  const [highlightedMessageId, setHighlightedMessageId] = useState(null);
+  const [userStatuses, setUserStatuses] = useState({});
+  const [starredMessages, setStarredMessages] = useState([]);
+  const draftTimersRef = useRef({});
   const [loadingByRoom, setLoadingByRoom] = useState({});
   const [loadingOlderByRoom, setLoadingOlderByRoom] = useState({});
   const [errorByRoom, setErrorByRoom] = useState({});
@@ -529,6 +534,23 @@ export function useChat() {
       );
     };
 
+    const handleDraftUpdated = ({ roomId, text }) => {
+      if (!roomId) return;
+      setDraftsByRoom((prev) => ({ ...prev, [roomId]: text || '' }));
+    };
+
+    const handlePinsUpdated = ({ roomId, pinnedMessages }) => {
+      if (!roomId || !Array.isArray(pinnedMessages)) return;
+      setRooms((prev) =>
+        prev.map((r) => (r._id === roomId ? { ...r, pinnedMessages } : r))
+      );
+    };
+
+    const handleUserStatusUpdated = ({ userId: uid, customStatus, dnd }) => {
+      if (!uid) return;
+      setUserStatuses((prev) => ({ ...prev, [uid]: { customStatus, dnd } }));
+    };
+
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
@@ -549,6 +571,9 @@ export function useChat() {
     socket.on('room:joined', handleRoomJoined);
     socket.on('room:left', handleRoomLeft);
     socket.on('member:updated', handleMemberUpdated);
+    socket.on('draft:updated', handleDraftUpdated);
+    socket.on('room:pins_updated', handlePinsUpdated);
+    socket.on('user:status_updated', handleUserStatusUpdated);
 
     return () => {
       socket.io.off('reconnect_attempt', handleReconnectAttempt);
@@ -819,6 +844,85 @@ export function useChat() {
     });
   }, []);
 
+  const jumpToMessage = useCallback(
+    async (roomId, messageId) => {
+      if (!roomId || !messageId) return;
+      selectRoom(roomId);
+      const data = await apiFetch(
+        `/api/rooms/${roomId}/messages?around=${encodeURIComponent(messageId)}&limit=${PAGE_SIZE}`
+      );
+      setMessagesByRoom((prev) => ({ ...prev, [roomId]: data.messages || [] }));
+      setHasMoreByRoom((prev) => ({ ...prev, [roomId]: Boolean(data.hasMoreOlder) }));
+      setHighlightedMessageId(messageId);
+      setTimeout(() => {
+        setHighlightedMessageId((cur) => (cur === messageId ? null : cur));
+      }, 2500);
+    },
+    [selectRoom]
+  );
+
+  const saveDraft = useCallback((roomId, text) => {
+    if (!roomId) return;
+    setDraftsByRoom((prev) => ({ ...prev, [roomId]: text }));
+    if (draftTimersRef.current[roomId]) {
+      clearTimeout(draftTimersRef.current[roomId]);
+    }
+    draftTimersRef.current[roomId] = setTimeout(() => {
+      apiFetch(`/api/rooms/${roomId}/draft`, {
+        method: 'PUT',
+        body: JSON.stringify({ text }),
+      }).catch(() => {});
+    }, 800);
+  }, []);
+
+  const pinMessage = useCallback(async (roomId, messageId) => {
+    await apiFetch(`/api/rooms/${roomId}/pins/${messageId}`, { method: 'POST' });
+  }, []);
+
+  const unpinMessage = useCallback(async (roomId, messageId) => {
+    await apiFetch(`/api/rooms/${roomId}/pins/${messageId}`, { method: 'DELETE' });
+  }, []);
+
+  const toggleStar = useCallback(async (messageId, isStarred) => {
+    await apiFetch(`/api/messages/${messageId}/star`, {
+      method: isStarred ? 'DELETE' : 'POST',
+    });
+  }, []);
+
+  const loadStarredMessages = useCallback(async () => {
+    const data = await apiFetch('/api/users/me/stars');
+    setStarredMessages(data.stars || []);
+    return data.stars || [];
+  }, []);
+
+  const setNotificationLevel = useCallback(async (roomId, level) => {
+    await apiFetch(`/api/rooms/${roomId}/notifications`, {
+      method: 'PATCH',
+      body: JSON.stringify({ level }),
+    });
+    setRooms((prev) =>
+      prev.map((r) =>
+        r._id === roomId
+          ? {
+              ...r,
+              members: (r.members || []).map((m) =>
+                m.user?.id === user?.id
+                  ? { ...m, notificationLevel: level, muted: level === 'muted' }
+                  : m
+              ),
+            }
+          : r
+      )
+    );
+  }, [user?.id]);
+
+  const updateUserStatus = useCallback(async (payload) => {
+    return apiFetch('/api/users/me/status', {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+  }, []);
+
   const requestSummary = useCallback(async (roomId, { force = false } = {}) => {
     if (!roomId) return;
     setSummaryLoadingByRoom((prev) => ({ ...prev, [roomId]: true }));
@@ -886,6 +990,18 @@ export function useChat() {
     deleteRoom,
     changeMemberRole,
     removeMember,
+    draftsByRoom,
+    highlightedMessageId,
+    userStatuses,
+    starredMessages,
+    jumpToMessage,
+    saveDraft,
+    pinMessage,
+    unpinMessage,
+    toggleStar,
+    loadStarredMessages,
+    setNotificationLevel,
+    updateUserStatus,
     requestSummary,
     dismissSummary,
   };

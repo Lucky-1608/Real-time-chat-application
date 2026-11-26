@@ -17,6 +17,7 @@ export function serializeRoomMember(member) {
     user: userObj,
     role: member.role,
     muted: Boolean(member.muted),
+    notificationLevel: member.notificationLevel || (member.muted ? 'muted' : 'all'),
     joinedAt: member.joinedAt instanceof Date ? member.joinedAt.toISOString() : member.joinedAt,
     lastReadAt:
       member.lastReadAt instanceof Date ? member.lastReadAt.toISOString() : member.lastReadAt,
@@ -42,6 +43,7 @@ export function serializeRoom(roomDoc, currentUserId, { lastMessage = null, unre
     announcementMode: Boolean(roomDoc.announcementMode),
     maxMembers: roomDoc.maxMembers || MAX_MEMBERS_PER_ROOM,
     allowInviteLinks: roomDoc.allowInviteLinks !== false,
+    pinnedMessages: (roomDoc.pinnedMessages || []).map((id) => id.toString()),
     lastMessage,
     unreadCount,
     createdAt:
@@ -114,10 +116,68 @@ export async function getRoomMessages({
   userId,
   before,
   after,
+  around,
   limit = 50,
   storageService = defaultStorageService,
 }) {
   const { room } = await getRoomIfMember(roomId, userId);
+
+  if (around) {
+    const anchor = await Message.findOne({ _id: around, room: room._id }).lean();
+    if (!anchor) {
+      return { messages: [], hasMore: false, hasMoreOlder: false, hasMoreNewer: false };
+    }
+
+    const half = Math.floor((limit - 1) / 2);
+    const [olderDocs, newerDocs] = await Promise.all([
+      Message.find({
+        room: room._id,
+        _id: { $ne: anchor._id },
+        createdAt: { $lte: anchor.createdAt },
+      })
+        .sort({ createdAt: -1, _id: -1 })
+        .limit(half + 1)
+        .lean(),
+      Message.find({
+        room: room._id,
+        _id: { $ne: anchor._id },
+        createdAt: { $gte: anchor.createdAt },
+      })
+        .sort({ createdAt: 1, _id: 1 })
+        .limit(limit - 1 - half + 1)
+        .lean(),
+    ]);
+
+    const hasMoreOlder = olderDocs.length > half;
+    const olderPage = (hasMoreOlder ? olderDocs.slice(0, half) : olderDocs).reverse();
+
+    const newerLimit = limit - 1 - half;
+    const hasMoreNewer = newerDocs.length > newerLimit;
+    const newerPage = hasMoreNewer ? newerDocs.slice(0, newerLimit) : newerDocs;
+
+    // Deduplicate in case anchor and a neighbor share the exact same millisecond timestamp
+    const seen = new Set();
+    const combined = [];
+    for (const d of [...olderPage, anchor, ...newerPage]) {
+      const idStr = d._id.toString();
+      if (!seen.has(idStr)) {
+        seen.add(idStr);
+        combined.push(d);
+      }
+    }
+
+    const messages = await Promise.all(
+      combined.map((d) => storageService.attachDownloadUrls(serializeMessage(d)))
+    );
+
+    return {
+      messages,
+      hasMore: hasMoreOlder,
+      hasMoreOlder,
+      hasMoreNewer,
+      anchorId: anchor._id.toString(),
+    };
+  }
 
   if (after) {
     const docs = await Message.find({

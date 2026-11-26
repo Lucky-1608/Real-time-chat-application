@@ -58,6 +58,7 @@ export default function ChatWindow() {
     deleteRoom,
     changeMemberRole,
     removeMember,
+    setNotificationLevel,
     requestSummary,
     dismissSummary,
   } = useChat();
@@ -119,6 +120,7 @@ export default function ChatWindow() {
             onDeleteRoom={deleteRoom}
             onChangeMemberRole={changeMemberRole}
             onRemoveMember={removeMember}
+            onSetNotificationLevel={setNotificationLevel}
             onStartDm={startDm}
             onSummarize={() => requestSummary(activeRoomId)}
             summaryLoading={summaryLoading}

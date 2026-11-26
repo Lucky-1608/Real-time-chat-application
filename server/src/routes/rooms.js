@@ -3,8 +3,9 @@ import { Router } from 'express';
 import mongoose from 'mongoose';
 import Room, { makeDmKey } from '../models/Room.js';
 import User from '../models/User.js';
-import Message from '../models/Message.js';
+import Message, { serializeMessage } from '../models/Message.js';
 import InviteLink from '../models/InviteLink.js';
+import Draft from '../models/Draft.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -13,8 +14,10 @@ import {
   createDmSchema,
   createInviteSchema,
   createRoomSchema,
+  draftSchema,
   inviteMembersSchema,
   messagesQuerySchema,
+  notificationLevelSchema,
   publicRoomsQuerySchema,
   roomChangesQuerySchema,
   roomMuteSchema,
@@ -854,17 +857,153 @@ export function createRoomsRouter({
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid query parameters', 400);
       }
 
-      const { before, after, limit } = parsed.data;
+      const { before, after, around, limit } = parsed.data;
       const result = await getRoomMessages({
         roomId: req.params.id,
         userId: req.user.id,
         before,
         after,
+        around,
         limit,
         storageService,
       });
 
       res.status(200).json(result);
+    })
+  );
+
+  // GET /api/rooms/:id/pins — list pinned messages for a room
+  router.get(
+    '/:id/pins',
+    asyncHandler(async (req, res) => {
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const docs = await Message.find({
+        _id: { $in: room.pinnedMessages || [] },
+        room: room._id,
+        deletedAt: null,
+      })
+        .sort({ createdAt: -1 })
+        .lean();
+
+      res.status(200).json({ pins: docs.map(serializeMessage) });
+    })
+  );
+
+  // POST /api/rooms/:id/pins/:messageId — pin a message (moderator+, max 10)
+  router.post(
+    '/:id/pins/:messageId',
+    asyncHandler(async (req, res) => {
+      const messageId = parseRoomId(req.params.messageId);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      assertCan(req.user, 'message.pin', { room });
+
+      const msg = await Message.findOne({ _id: messageId, room: room._id, deletedAt: null }).lean();
+      if (!msg) {
+        throw new AppError('Message not found', 404);
+      }
+
+      const existing = (room.pinnedMessages || []).map((id) => id.toString());
+      if (!existing.includes(messageId)) {
+        if (existing.length >= 10) {
+          throw new AppError('A room can have at most 10 pinned messages', 400);
+        }
+        room.pinnedMessages.push(messageId);
+        await room.save();
+      }
+
+      const roomIdStr = room._id.toString();
+      const pinnedIds = room.pinnedMessages.map((id) => id.toString());
+      const io = req.app.locals.io;
+      if (io) {
+        io.to(`room:${roomIdStr}`).emit('room:pins_updated', {
+          roomId: roomIdStr,
+          pinnedMessages: pinnedIds,
+        });
+      }
+
+      res.status(200).json({ pinnedMessages: pinnedIds });
+    })
+  );
+
+  // DELETE /api/rooms/:id/pins/:messageId — unpin a message (moderator+)
+  router.delete(
+    '/:id/pins/:messageId',
+    asyncHandler(async (req, res) => {
+      const messageId = parseRoomId(req.params.messageId);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      assertCan(req.user, 'message.pin', { room });
+
+      await Room.updateOne({ _id: room._id }, { $pull: { pinnedMessages: messageId } });
+      const updated = await Room.findById(room._id, { pinnedMessages: 1 }).lean();
+      const pinnedIds = (updated?.pinnedMessages || []).map((id) => id.toString());
+      const roomIdStr = room._id.toString();
+
+      const io = req.app.locals.io;
+      if (io) {
+        io.to(`room:${roomIdStr}`).emit('room:pins_updated', {
+          roomId: roomIdStr,
+          pinnedMessages: pinnedIds,
+        });
+      }
+
+      res.status(200).json({ pinnedMessages: pinnedIds });
+    })
+  );
+
+  // PUT /api/rooms/:id/draft — save/sync draft across user's devices
+  router.put(
+    '/:id/draft',
+    asyncHandler(async (req, res) => {
+      const parsed = draftSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid draft', 400);
+      }
+
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const text = parsed.data.text;
+
+      if (!text) {
+        await Draft.deleteOne({ user: req.user.id, room: room._id });
+      } else {
+        await Draft.updateOne(
+          { user: req.user.id, room: room._id },
+          { $set: { text } },
+          { upsert: true }
+        );
+      }
+
+      const roomIdStr = room._id.toString();
+      const io = req.app.locals.io;
+      if (io) {
+        io.to(`user:${req.user.id}`).emit('draft:updated', { roomId: roomIdStr, text });
+      }
+
+      res.status(200).json({ ok: true, roomId: roomIdStr, text });
+    })
+  );
+
+  // PATCH /api/rooms/:id/notifications — per-room notification level (all | mentions | muted)
+  router.patch(
+    '/:id/notifications',
+    asyncHandler(async (req, res) => {
+      const parsed = notificationLevelSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid notification level', 400);
+      }
+
+      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const level = parsed.data.level;
+      await Room.updateOne(
+        { _id: room._id, 'members.user': req.user.id },
+        {
+          $set: {
+            'members.$.notificationLevel': level,
+            'members.$.muted': level === 'muted',
+          },
+        }
+      );
+
+      res.status(200).json({ ok: true, roomId: room._id.toString(), level });
     })
   );
 

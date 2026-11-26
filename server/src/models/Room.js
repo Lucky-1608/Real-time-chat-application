@@ -25,6 +25,11 @@ const memberSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    notificationLevel: {
+      type: String,
+      enum: ['all', 'mentions', 'muted'],
+      default: 'all',
+    },
   },
   { _id: false }
 );
@@ -83,6 +88,10 @@ const roomSchema = new mongoose.Schema(
     allowInviteLinks: {
       type: Boolean,
       default: true,
+    },
+    pinnedMessages: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Message' }],
+      default: [],
     },
     bannedUsers: {
       type: [

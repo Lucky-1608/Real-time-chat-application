@@ -38,6 +38,10 @@ export const loginSchema = z.object({
 export const messagesQuerySchema = z.object({
   before: z.string().datetime({ message: 'Invalid before cursor' }).optional(),
   after: z.string().datetime({ message: 'Invalid after cursor' }).optional(),
+  around: z
+    .string()
+    .refine((val) => mongoose.isValidObjectId(val), { message: 'Invalid around message ID' })
+    .optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
   roomId: objectIdSchema.optional(),
 });
@@ -222,4 +226,22 @@ export const createReportSchema = z.object({
 export const moderationActionSchema = z.object({
   action: z.enum(['dismiss', 'delete_message', 'warn', 'kick', 'ban', 'suspend']),
   note: z.string().trim().max(500).optional().default(''),
+});
+
+export const draftSchema = z.object({
+  text: z.string().max(2000, 'Draft cannot exceed 2000 characters'),
+});
+
+export const notificationLevelSchema = z.object({
+  level: z.enum(['all', 'mentions', 'muted']),
+});
+
+export const userStatusSchema = z.object({
+  text: z.string().trim().max(80).optional().default(''),
+  emoji: z.string().trim().max(16).optional().default(''),
+  expiresAt: z.string().datetime().nullable().optional().default(null),
+  dndEnabled: z.boolean().optional(),
+  dndUntil: z.string().datetime().nullable().optional(),
+  appearOffline: z.boolean().optional(),
+  globalMute: z.boolean().optional(),
 });

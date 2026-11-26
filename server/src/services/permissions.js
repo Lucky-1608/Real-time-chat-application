@@ -22,6 +22,7 @@ export const PERMISSION_MATRIX = {
   'message.edit_own': ['owner', 'admin', 'moderator', 'member'],
   'message.delete_own': ['owner', 'admin', 'moderator', 'member'],
   'message.delete_any': ['owner', 'admin', 'moderator'],
+  'message.pin': ['owner', 'admin', 'moderator'],
   'room.rename': ['owner', 'admin'],
   'room.settings': ['owner', 'admin'],
   'room.summary': ['owner', 'admin', 'moderator', 'member'],

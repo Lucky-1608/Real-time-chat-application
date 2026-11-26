@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Message, { serializeMessage, serializeReactions } from '../models/Message.js';
 import Room from '../models/Room.js';
 import User from '../models/User.js';
+import Draft from '../models/Draft.js';
 import {
   messageDeleteSchema,
   messageEditSchema,
@@ -134,41 +135,59 @@ export function registerChatHandlers(
       const serialized = await storageService.attachDownloadUrls(serializeMessage(doc));
       io.to(`room:${roomIdStr}`).emit('message:new', serialized);
 
+      // Clear any saved draft for this room and sync across user's open tabs.
+      await Draft.deleteOne({ user: userId, room: room._id }).catch(() => {});
+      io.to(`user:${userId}`).emit('draft:updated', { roomId: roomIdStr, text: '' });
+
       // Notify online room members on their personal channel so sidebars update unread badges.
       if (presence) {
         const onlineRecipients = room.members.filter(
-          (m) => !m.muted && m.user.toString() !== userId && presence.isUserOnline(m.user)
+          (m) =>
+            !m.muted &&
+            m.notificationLevel !== 'muted' &&
+            m.user.toString() !== userId &&
+            presence.isUserOnline(m.user)
         );
         if (onlineRecipients.length > 0) {
           const recipientDocs = await User.find(
             { _id: { $in: onlineRecipients.map((m) => m.user) } },
-            { mutedUsers: 1, blockedUsers: 1 }
+            { username: 1, mutedUsers: 1, blockedUsers: 1, globalMute: 1, dnd: 1 }
           ).lean();
-          const suppressedIds = new Set(
-            recipientDocs
-              .filter(
-                (u) =>
-                  (u.mutedUsers || []).some((id) => id.toString() === userId) ||
-                  (u.blockedUsers || []).some((id) => id.toString() === userId)
-              )
-              .map((u) => u._id.toString())
-          );
+          const docById = new Map(recipientDocs.map((u) => [u._id.toString(), u]));
+
+          const eligible = onlineRecipients.filter((m) => {
+            const u = docById.get(m.user.toString());
+            if (!u) return false;
+            if (u.globalMute) return false;
+            if (u.dnd?.enabled && (!u.dnd.until || new Date(u.dnd.until) > new Date())) {
+              return false;
+            }
+            if (
+              (u.mutedUsers || []).some((id) => id.toString() === userId) ||
+              (u.blockedUsers || []).some((id) => id.toString() === userId)
+            ) {
+              return false;
+            }
+            if (m.notificationLevel === 'mentions') {
+              const mentionPattern = new RegExp(`@${u.username}\\b`, 'i');
+              return mentionPattern.test(text || '');
+            }
+            return true;
+          });
 
           await Promise.all(
-            onlineRecipients
-              .filter((m) => !suppressedIds.has(m.user.toString()))
-              .map(async (member) => {
-                const since = member.lastReadAt || member.joinedAt || new Date(0);
-                const unreadCount = await Message.countDocuments({
-                  room: room._id,
-                  createdAt: { $gt: since },
-                  sender: { $ne: member.user },
-                });
-                io.to(`user:${member.user.toString()}`).emit('room:unread', {
-                  roomId: roomIdStr,
-                  unreadCount,
-                });
-              })
+            eligible.map(async (member) => {
+              const since = member.lastReadAt || member.joinedAt || new Date(0);
+              const unreadCount = await Message.countDocuments({
+                room: room._id,
+                createdAt: { $gt: since },
+                sender: { $ne: member.user },
+              });
+              io.to(`user:${member.user.toString()}`).emit('room:unread', {
+                roomId: roomIdStr,
+                unreadCount,
+              });
+            })
           );
         }
       }

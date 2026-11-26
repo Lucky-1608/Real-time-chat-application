@@ -81,6 +81,20 @@ const userSchema = new mongoose.Schema(
       type: Date,
       default: null,
     },
+    customStatus: {
+      text: { type: String, trim: true, maxlength: 80, default: '' },
+      emoji: { type: String, trim: true, maxlength: 16, default: '' },
+      expiresAt: { type: Date, default: null },
+    },
+    dnd: {
+      enabled: { type: Boolean, default: false },
+      until: { type: Date, default: null },
+      appearOffline: { type: Boolean, default: false },
+    },
+    globalMute: {
+      type: Boolean,
+      default: false,
+    },
   },
   {
     timestamps: true,

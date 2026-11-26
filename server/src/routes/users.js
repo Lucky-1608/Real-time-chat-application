@@ -1,9 +1,13 @@
 import { Router } from 'express';
 import User from '../models/User.js';
+import Room from '../models/Room.js';
+import StarredMessage from '../models/StarredMessage.js';
+import Draft from '../models/Draft.js';
+import { serializeMessage } from '../models/Message.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { objectIdSchema, userSearchQuerySchema } from '../utils/validators.js';
+import { objectIdSchema, userSearchQuerySchema, userStatusSchema } from '../utils/validators.js';
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -115,6 +119,106 @@ export function createUsersRouter({ rateLimiter } = {}) {
         { $pull: { mutedUsers: parsed.data } }
       );
       res.status(200).json({ ok: true, unmutedUserId: parsed.data });
+    })
+  );
+
+  // GET /api/users/me/stars — returns starred messages ONLY for rooms user still belongs to
+  router.get(
+    '/me/stars',
+    asyncHandler(async (req, res) => {
+      const myRooms = await Room.find({ 'members.user': req.user.id }, { _id: 1, name: 1, type: 1 }).lean();
+      const allowedRoomIds = new Set(myRooms.map((r) => r._id.toString()));
+      const roomById = new Map(myRooms.map((r) => [r._id.toString(), r]));
+
+      const stars = await StarredMessage.find({ user: req.user.id })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .populate('message')
+        .lean();
+
+      const valid = stars
+        .filter((s) => s.message && !s.message.deletedAt && allowedRoomIds.has(s.room.toString()))
+        .map((s) => {
+          const r = roomById.get(s.room.toString());
+          return {
+            _id: s._id.toString(),
+            roomId: s.room.toString(),
+            roomName: r?.type === 'dm' ? 'Direct Message' : r?.name || 'Room',
+            starredAt: s.createdAt,
+            message: serializeMessage(s.message),
+          };
+        });
+
+      res.status(200).json({ stars: valid });
+    })
+  );
+
+  // GET /api/users/me/drafts — returns saved drafts per room
+  router.get(
+    '/me/drafts',
+    asyncHandler(async (req, res) => {
+      const docs = await Draft.find({ user: req.user.id }).lean();
+      const drafts = {};
+      for (const d of docs) {
+        drafts[d.room.toString()] = d.text;
+      }
+      res.status(200).json({ drafts });
+    })
+  );
+
+  // PUT /api/users/me/status — update custom status & DND, broadcast to shared-room members only
+  router.put(
+    '/me/status',
+    asyncHandler(async (req, res) => {
+      const parsed = userStatusSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid status payload', 400);
+      }
+
+      const { text, emoji, expiresAt, dndEnabled, dndUntil, appearOffline, globalMute } = parsed.data;
+      const update = {
+        customStatus: {
+          text: text || '',
+          emoji: emoji || '',
+          expiresAt: expiresAt ? new Date(expiresAt) : null,
+        },
+      };
+      if (dndEnabled !== undefined) update['dnd.enabled'] = dndEnabled;
+      if (dndUntil !== undefined) update['dnd.until'] = dndUntil ? new Date(dndUntil) : null;
+      if (appearOffline !== undefined) update['dnd.appearOffline'] = appearOffline;
+      if (globalMute !== undefined) update.globalMute = globalMute;
+
+      const user = await User.findByIdAndUpdate(
+        req.user.id,
+        { $set: update },
+        { new: true, select: { customStatus: 1, dnd: 1, globalMute: 1 } }
+      ).lean();
+
+      const sharedRooms = await Room.find({ 'members.user': req.user.id }, { members: 1 }).lean();
+      const recipientIds = new Set();
+      for (const r of sharedRooms) {
+        for (const m of r.members || []) {
+          recipientIds.add(m.user.toString());
+        }
+      }
+
+      const io = req.app.locals.io;
+      if (io) {
+        const payload = {
+          userId: req.user.id,
+          customStatus: user.customStatus,
+          dnd: user.dnd,
+        };
+        for (const memberId of recipientIds) {
+          io.to(`user:${memberId}`).emit('user:status_updated', payload);
+        }
+      }
+
+      res.status(200).json({
+        customStatus: user.customStatus,
+        dnd: user.dnd,
+        globalMute: Boolean(user.globalMute),
+      });
     })
   );
 

@@ -13,6 +13,7 @@ export default function RoomHeader({
   onDeleteRoom,
   onChangeMemberRole,
   onRemoveMember,
+  onSetNotificationLevel,
   onStartDm,
   onSummarize,
   summaryLoading = false,
@@ -70,6 +71,20 @@ export default function RoomHeader({
       </div>
 
       <div className={styles.actions}>
+        {room && (
+          <select
+            aria-label="Room notification level"
+            className={styles.actionBtn}
+            value={myMember?.notificationLevel || (myMember?.muted ? 'muted' : 'all')}
+            onChange={(e) => onSetNotificationLevel?.(room._id, e.target.value)}
+            title="Notification preference"
+          >
+            <option value="all">Notify: All</option>
+            <option value="mentions">Notify: @Mentions</option>
+            <option value="muted">Notify: Muted</option>
+          </select>
+        )}
+
         {room && (
           <button
             type="button"

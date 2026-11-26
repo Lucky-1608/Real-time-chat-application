@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import Message, { serializeMessage } from '../models/Message.js';
+import StarredMessage from '../models/StarredMessage.js';
 import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { messagesQuerySchema } from '../utils/validators.js';
+import { messagesQuerySchema, objectIdSchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { ensureGeneralRoom } from '../services/roomMigration.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
@@ -60,6 +61,38 @@ export function createMessagesRouter() {
         messages: page.map(serializeMessage),
         hasMore,
       });
+    })
+  );
+
+  router.post(
+    '/:id/star',
+    asyncHandler(async (req, res) => {
+      const parsed = objectIdSchema.safeParse(req.params.id);
+      if (!parsed.success) throw new AppError('Invalid message ID', 400);
+
+      const msg = await Message.findById(parsed.data, { room: 1, deletedAt: 1 }).lean();
+      if (!msg || msg.deletedAt) throw new AppError('Message not found', 404);
+
+      await getRoomIfMember(msg.room.toString(), req.user.id);
+
+      await StarredMessage.updateOne(
+        { user: req.user.id, message: msg._id },
+        { $setOnInsert: { user: req.user.id, message: msg._id, room: msg.room } },
+        { upsert: true }
+      );
+
+      res.status(200).json({ ok: true, messageId: msg._id.toString(), starred: true });
+    })
+  );
+
+  router.delete(
+    '/:id/star',
+    asyncHandler(async (req, res) => {
+      const parsed = objectIdSchema.safeParse(req.params.id);
+      if (!parsed.success) throw new AppError('Invalid message ID', 400);
+
+      await StarredMessage.deleteOne({ user: req.user.id, message: parsed.data });
+      res.status(200).json({ ok: true, messageId: parsed.data, starred: false });
     })
   );
 
