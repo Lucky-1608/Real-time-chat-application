@@ -11,6 +11,7 @@ import {
 } from '../utils/validators.js';
 import { ensureGeneralRoom } from '../services/roomMigration.js';
 import { getRoomIfMember } from '../services/roomAccess.js';
+import { defaultStorageService } from '../services/storage.js';
 
 const RATE_WINDOW_MS = 10_000;
 const MAX_MESSAGES_PER_WINDOW = 10;
@@ -34,7 +35,12 @@ async function resolveAuthorizedRoom(roomId, userId) {
   return room;
 }
 
-export function registerChatHandlers(io, socket, presence) {
+export function registerChatHandlers(
+  io,
+  socket,
+  presence,
+  { storageService = defaultStorageService } = {}
+) {
   const sendTimestamps = [];
   const { id: userId, username } = socket.data.user;
 
@@ -53,11 +59,20 @@ export function registerChatHandlers(io, socket, presence) {
       });
     }
 
-    const { text, roomId } = parsed.data;
+    const { text, roomId, attachments } = parsed.data;
 
     try {
       const room = await resolveAuthorizedRoom(roomId, userId);
       const roomIdStr = room._id.toString();
+
+      // Re-validate attachment keys so a user cannot reference objects from another room.
+      const expectedPrefix = `uploads/${roomIdStr}/`;
+      for (const att of attachments) {
+        if (!att.key.startsWith(expectedPrefix) || att.key.includes('..')) {
+          return respond({ ok: false, error: 'Invalid attachment key for this room' });
+        }
+        await storageService.verifyUploadedObject({ key: att.key, expectedSize: att.size });
+      }
 
       // Persist before broadcasting so every delivered message is guaranteed durable
       // and has a canonical MongoDB _id and createdAt timestamp.
@@ -66,9 +81,10 @@ export function registerChatHandlers(io, socket, presence) {
         sender: userId,
         senderName: username,
         text,
+        attachments,
       });
 
-      const serialized = serializeMessage(doc);
+      const serialized = await storageService.attachDownloadUrls(serializeMessage(doc));
       io.to(`room:${roomIdStr}`).emit('message:new', serialized);
 
       // Notify online room members on their personal channel so sidebars update unread badges.

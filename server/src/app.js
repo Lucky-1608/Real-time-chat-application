@@ -8,12 +8,19 @@ import { createAuthRouter } from './routes/auth.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createRoomsRouter } from './routes/rooms.js';
 import { createUsersRouter } from './routes/users.js';
+import { createUploadsRouter } from './routes/uploads.js';
+import { defaultStorageService } from './services/storage.js';
 
 /**
  * Builds the Express application without binding a port so it can be
  * shared between the HTTP server bootstrap and Supertest integration tests.
  */
-export function createApp({ registerRoutes, authRateLimiter, apiRateLimiter } = {}) {
+export function createApp({
+  registerRoutes,
+  authRateLimiter,
+  apiRateLimiter,
+  storageService = defaultStorageService,
+} = {}) {
   const app = express();
 
   app.use(helmet());
@@ -40,8 +47,9 @@ export function createApp({ registerRoutes, authRateLimiter, apiRateLimiter } = 
     '/api/auth',
     createAuthRouter({ rateLimiter: authRateLimiter ?? createAuthRateLimiter() })
   );
-  app.use('/api/rooms', createRoomsRouter({ rateLimiter: sharedApiLimiter }));
+  app.use('/api/rooms', createRoomsRouter({ rateLimiter: sharedApiLimiter, storageService }));
   app.use('/api/users', createUsersRouter({ rateLimiter: sharedApiLimiter }));
+  app.use('/api/uploads', createUploadsRouter({ rateLimiter: sharedApiLimiter, storageService }));
 
   // Deprecated in favor of GET /api/rooms/:id/messages; kept for backward compatibility with General room clients.
   app.use('/api/messages', createMessagesRouter());

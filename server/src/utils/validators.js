@@ -1,6 +1,9 @@
 import { z } from 'zod';
 import mongoose from 'mongoose';
 import { ALLOWED_REACTIONS } from '../models/Message.js';
+import { ALLOWED_UPLOAD_TYPES, MAX_UPLOAD_BYTES } from '../services/storage.js';
+
+const ALLOWED_MIME_KEYS = Object.keys(ALLOWED_UPLOAD_TYPES);
 
 export const objectIdSchema = z
   .string()
@@ -31,14 +34,37 @@ export const messagesQuerySchema = z.object({
   roomId: objectIdSchema.optional(),
 });
 
-export const messageSendSchema = z.object({
-  text: z
-    .string()
-    .trim()
-    .min(1, 'Message cannot be empty')
-    .max(2000, 'Message cannot exceed 2000 characters'),
-  roomId: objectIdSchema.optional(),
+export const attachmentSchema = z.object({
+  key: z.string().min(1).max(300),
+  name: z.string().trim().min(1, 'Attachment name is required').max(255),
+  contentType: z.enum(ALLOWED_MIME_KEYS, { message: 'Unsupported file type' }),
+  size: z
+    .number()
+    .int()
+    .min(1, 'File cannot be empty')
+    .max(MAX_UPLOAD_BYTES, 'File exceeds 10 MB limit'),
 });
+
+export const presignUploadSchema = z.object({
+  roomId: objectIdSchema,
+  filename: z.string().trim().min(1, 'Filename is required').max(255),
+  contentType: z.enum(ALLOWED_MIME_KEYS, { message: 'Unsupported file type' }),
+  size: z
+    .number()
+    .int()
+    .min(1, 'File cannot be empty')
+    .max(MAX_UPLOAD_BYTES, 'File exceeds 10 MB limit'),
+});
+
+export const messageSendSchema = z
+  .object({
+    text: z.string().trim().max(2000, 'Message cannot exceed 2000 characters').optional().default(''),
+    roomId: objectIdSchema.optional(),
+    attachments: z.array(attachmentSchema).max(4, 'Maximum 4 attachments per message').optional().default([]),
+  })
+  .refine((data) => data.text.length > 0 || data.attachments.length > 0, {
+    message: 'Message cannot be empty',
+  });
 
 export const messageReadSchema = z.object({
   messageIds: z

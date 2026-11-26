@@ -130,6 +130,7 @@ export default function ChatWindow() {
             />
             <TypingIndicator typingUsers={typingUsers} />
             <MessageInput
+              roomId={activeRoomId}
               onSend={sendMessage}
               onTyping={notifyTyping}
               onStopTyping={stopTyping}

@@ -1,0 +1,39 @@
+import { Router } from 'express';
+import { requireAuth } from '../middleware/auth.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { AppError } from '../middleware/errorHandler.js';
+import { presignUploadSchema } from '../utils/validators.js';
+import { getRoomIfMember } from '../services/roomAccess.js';
+import { defaultStorageService } from '../services/storage.js';
+
+export function createUploadsRouter({ rateLimiter, storageService = defaultStorageService } = {}) {
+  const router = Router();
+
+  router.use(requireAuth);
+  if (rateLimiter) {
+    router.use(rateLimiter);
+  }
+
+  router.post(
+    '/presign',
+    asyncHandler(async (req, res) => {
+      const parsed = presignUploadSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid upload request', 400);
+      }
+
+      const { roomId, contentType, size } = parsed.data;
+      await getRoomIfMember(roomId, req.user.id);
+
+      const presigned = await storageService.createPresignedUpload({
+        roomId,
+        contentType,
+        size,
+      });
+
+      res.status(200).json(presigned);
+    })
+  );
+
+  return router;
+}

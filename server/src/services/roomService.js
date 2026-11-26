@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import Room from '../models/Room.js';
 import Message, { serializeMessage } from '../models/Message.js';
 import { getRoomIfMember } from './roomAccess.js';
+import { defaultStorageService } from './storage.js';
 
 export const MAX_ROOMS_PER_USER = 50;
 export const MAX_MEMBERS_PER_ROOM = 100;
@@ -101,7 +102,14 @@ export async function getRoomsWithPreviews(userId) {
   return enriched;
 }
 
-export async function getRoomMessages({ roomId, userId, before, after, limit = 50 }) {
+export async function getRoomMessages({
+  roomId,
+  userId,
+  before,
+  after,
+  limit = 50,
+  storageService = defaultStorageService,
+}) {
   const { room } = await getRoomIfMember(roomId, userId);
 
   if (after) {
@@ -113,8 +121,12 @@ export async function getRoomMessages({ roomId, userId, before, after, limit = 5
       .limit(limit)
       .lean();
 
+    const messages = await Promise.all(
+      docs.map((d) => storageService.attachDownloadUrls(serializeMessage(d)))
+    );
+
     return {
-      messages: docs.map(serializeMessage),
+      messages,
       hasMore: false,
     };
   }
@@ -133,8 +145,12 @@ export async function getRoomMessages({ roomId, userId, before, after, limit = 5
   const page = hasMore ? docs.slice(0, limit) : docs;
   page.reverse();
 
+  const messages = await Promise.all(
+    page.map((d) => storageService.attachDownloadUrls(serializeMessage(d)))
+  );
+
   return {
-    messages: page.map(serializeMessage),
+    messages,
     hasMore,
   };
 }
@@ -143,7 +159,12 @@ export async function getRoomMessages({ roomId, userId, before, after, limit = 5
  * Fetches messages created, edited, or soft-deleted since a given updatedAt cursor
  * so reconnecting or room-switching clients pick up edits and deletes.
  */
-export async function getRoomChanges({ roomId, userId, since }) {
+export async function getRoomChanges({
+  roomId,
+  userId,
+  since,
+  storageService = defaultStorageService,
+}) {
   const { room } = await getRoomIfMember(roomId, userId);
 
   const docs = await Message.find({
@@ -154,7 +175,11 @@ export async function getRoomChanges({ roomId, userId, since }) {
     .limit(200)
     .lean();
 
+  const changes = await Promise.all(
+    docs.map((d) => storageService.attachDownloadUrls(serializeMessage(d)))
+  );
+
   return {
-    changes: docs.map(serializeMessage),
+    changes,
   };
 }

@@ -1,15 +1,52 @@
 import 'dotenv/config';
 import { z } from 'zod';
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(4000),
-  MONGO_URI: z.string().min(1, 'MONGO_URI is required'),
-  JWT_SECRET: z
-    .string()
-    .min(32, 'JWT_SECRET must be at least 32 characters long for HS256 security'),
-  CLIENT_URL: z.string().url('CLIENT_URL must be a valid URL (e.g. http://localhost:5173)'),
-});
+const envSchema = z
+  .object({
+    NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+    PORT: z.coerce.number().int().positive().default(4000),
+    MONGO_URI: z.string().min(1, 'MONGO_URI is required'),
+    JWT_SECRET: z
+      .string()
+      .min(32, 'JWT_SECRET must be at least 32 characters long for HS256 security'),
+    CLIENT_URL: z.string().url('CLIENT_URL must be a valid URL (e.g. http://localhost:5173)'),
+
+    // Optional S3-compatible storage credentials (AWS S3 / Cloudflare R2).
+    // If any S3_* variable is set, all required S3 credentials must be present.
+    S3_ENDPOINT: z.string().url().optional().or(z.literal('')),
+    S3_REGION: z.string().min(1).default('auto'),
+    S3_BUCKET: z.string().optional().default(''),
+    S3_ACCESS_KEY_ID: z.string().optional().default(''),
+    S3_SECRET_ACCESS_KEY: z.string().optional().default(''),
+  })
+  .superRefine((data, ctx) => {
+    const anyS3Set = Boolean(
+      data.S3_ENDPOINT || data.S3_BUCKET || data.S3_ACCESS_KEY_ID || data.S3_SECRET_ACCESS_KEY
+    );
+    if (anyS3Set) {
+      if (!data.S3_BUCKET) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['S3_BUCKET'],
+          message: 'S3_BUCKET is required when S3 storage is configured',
+        });
+      }
+      if (!data.S3_ACCESS_KEY_ID) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['S3_ACCESS_KEY_ID'],
+          message: 'S3_ACCESS_KEY_ID is required when S3 storage is configured',
+        });
+      }
+      if (!data.S3_SECRET_ACCESS_KEY) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['S3_SECRET_ACCESS_KEY'],
+          message: 'S3_SECRET_ACCESS_KEY is required when S3 storage is configured',
+        });
+      }
+    }
+  });
 
 /**
  * Validates raw environment variables against the schema.

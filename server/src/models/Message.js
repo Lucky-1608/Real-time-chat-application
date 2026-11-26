@@ -19,6 +19,16 @@ const reactionSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const attachmentSchema = new mongoose.Schema(
+  {
+    key: { type: String, required: true },
+    name: { type: String, required: true, trim: true, maxlength: 255 },
+    contentType: { type: String, required: true },
+    size: { type: Number, required: true, min: 1 },
+  },
+  { _id: false }
+);
+
 const messageSchema = new mongoose.Schema(
   {
     room: {
@@ -52,6 +62,10 @@ const messageSchema = new mongoose.Schema(
     ],
     reactions: {
       type: [reactionSchema],
+      default: [],
+    },
+    attachments: {
+      type: [attachmentSchema],
       default: [],
     },
     editedAt: {
@@ -97,6 +111,14 @@ export function serializeMessage(doc) {
     text: isDeleted ? '' : doc.text,
     readBy: (doc.readBy || []).map((id) => id.toString()),
     reactions: isDeleted ? [] : serializeReactions(doc.reactions),
+    attachments: isDeleted
+      ? []
+      : (doc.attachments || []).map((a) => ({
+          key: a.key,
+          name: a.name,
+          contentType: a.contentType,
+          size: a.size,
+        })),
     editedAt: isDeleted ? null : toIso(doc.editedAt),
     deletedAt: toIso(doc.deletedAt),
     createdAt: toIso(doc.createdAt),

@@ -28,7 +28,7 @@ function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function createRoomsRouter({ rateLimiter } = {}) {
+export function createRoomsRouter({ rateLimiter, storageService } = {}) {
   const router = Router();
 
   router.use(requireAuth);
@@ -419,6 +419,7 @@ export function createRoomsRouter({ rateLimiter } = {}) {
         before,
         after,
         limit,
+        storageService,
       });
 
       res.status(200).json(result);
@@ -438,6 +439,7 @@ export function createRoomsRouter({ rateLimiter } = {}) {
         roomId: req.params.id,
         userId: req.user.id,
         since: parsed.data.since,
+        storageService,
       });
 
       res.status(200).json(result);

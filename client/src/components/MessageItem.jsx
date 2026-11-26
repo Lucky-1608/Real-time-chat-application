@@ -4,6 +4,13 @@ import styles from './MessageItem.module.css';
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const ALLOWED_REACTIONS = ['👍', '❤️', '😂', '🎉', '😮', '🙏'];
 
+function formatFileSize(bytes) {
+  if (!bytes) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 function formatTime(isoString) {
   if (!isoString) return '';
   const date = new Date(isoString);
@@ -30,6 +37,7 @@ export default function MessageItem({
   const [editError, setEditError] = useState('');
   const [savingEdit, setSavingEdit] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState(null);
 
   const {
     _id,
@@ -43,6 +51,7 @@ export default function MessageItem({
     error,
     readBy = [],
     reactions = [],
+    attachments = [],
   } = message;
 
   const isDeleted = Boolean(deletedAt);
@@ -190,7 +199,48 @@ export default function MessageItem({
               </div>
             </div>
           ) : (
-            <p className={styles.text}>{text}</p>
+            <>
+              {text && <p className={styles.text}>{text}</p>}
+              {attachments.length > 0 && (
+                <div className={styles.attachments}>
+                  {attachments.map((att) => {
+                    const src = att.url || att.previewUrl;
+                    const isImage = att.contentType?.startsWith('image/');
+                    if (isImage && src) {
+                      return (
+                        <button
+                          key={att.key}
+                          type="button"
+                          className={styles.imageBtn}
+                          onClick={() => setLightboxUrl(src)}
+                          aria-label={`View image ${att.name}`}
+                        >
+                          <img
+                            src={src}
+                            alt={att.name}
+                            loading="lazy"
+                            className={styles.attachmentImage}
+                          />
+                        </button>
+                      );
+                    }
+                    return (
+                      <a
+                        key={att.key}
+                        href={src || '#'}
+                        download={att.name}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={styles.fileChip}
+                      >
+                        <span className={styles.fileChipName}>{att.name}</span>
+                        <span className={styles.fileChipSize}>{formatFileSize(att.size)}</span>
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+            </>
           )}
 
           <div className={styles.meta}>
@@ -268,6 +318,18 @@ export default function MessageItem({
           <button type="button" className={styles.retryBtn} onClick={() => onRetry(_id)}>
             Retry
           </button>
+        </div>
+      )}
+
+      {lightboxUrl && (
+        <div
+          className={styles.lightbox}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image preview"
+          onClick={() => setLightboxUrl(null)}
+        >
+          <img src={lightboxUrl} alt="Full size preview" className={styles.lightboxImg} />
         </div>
       )}
     </div>

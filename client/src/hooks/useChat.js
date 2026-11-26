@@ -513,10 +513,10 @@ export function useChat() {
   }, [activeRoomId, loadingOlderByRoom, hasMoreByRoom, messagesByRoom, registerUsers]);
 
   const sendWithOptimism = useCallback(
-    (text, existingTempId = null) => {
-      const trimmed = text.trim();
+    (text, existingTempId = null, attachments = []) => {
+      const trimmed = (text || '').trim();
       const rId = activeRoomIdRef.current;
-      if (!trimmed || !user || !rId) return;
+      if ((!trimmed && (!attachments || attachments.length === 0)) || !user || !rId) return;
 
       const tempId =
         existingTempId || `temp-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -535,6 +535,7 @@ export function useChat() {
           sender: user.id,
           senderName: user.username,
           text: trimmed,
+          attachments,
           readBy: [],
           createdAt: new Date().toISOString(),
           status: 'sending',
@@ -556,43 +557,57 @@ export function useChat() {
         return;
       }
 
-      socket.emit('message:send', { roomId: rId, text: trimmed }, (ack) => {
-        if (ack?.ok) {
-          setMessagesByRoom((prev) => {
-            const list = prev[rId] || [];
-            const alreadyConfirmed = list.some((m) => m._id === ack.id);
-            if (alreadyConfirmed) {
-              return { ...prev, [rId]: list.filter((m) => m._id !== tempId) };
-            }
-            return {
+      const cleanAttachments = attachments.map(({ key, name, contentType, size }) => ({
+        key,
+        name,
+        contentType,
+        size,
+      }));
+
+      socket.emit(
+        'message:send',
+        { roomId: rId, text: trimmed, attachments: cleanAttachments },
+        (ack) => {
+          if (ack?.ok) {
+            setMessagesByRoom((prev) => {
+              const list = prev[rId] || [];
+              const alreadyConfirmed = list.some((m) => m._id === ack.id);
+              if (alreadyConfirmed) {
+                return { ...prev, [rId]: list.filter((m) => m._id !== tempId) };
+              }
+              return {
+                ...prev,
+                [rId]: list.map((m) =>
+                  m._id === tempId ? { ...m, _id: ack.id, status: 'sent', error: null } : m
+                ),
+              };
+            });
+          } else {
+            setMessagesByRoom((prev) => ({
               ...prev,
-              [rId]: list.map((m) =>
-                m._id === tempId ? { ...m, _id: ack.id, status: 'sent', error: null } : m
+              [rId]: (prev[rId] || []).map((m) =>
+                m._id === tempId
+                  ? { ...m, status: 'failed', error: ack?.error || 'Failed to send' }
+                  : m
               ),
-            };
-          });
-        } else {
-          setMessagesByRoom((prev) => ({
-            ...prev,
-            [rId]: (prev[rId] || []).map((m) =>
-              m._id === tempId
-                ? { ...m, status: 'failed', error: ack?.error || 'Failed to send' }
-                : m
-            ),
-          }));
+            }));
+          }
         }
-      });
+      );
     },
     [user]
   );
 
-  const sendMessage = useCallback((text) => sendWithOptimism(text), [sendWithOptimism]);
+  const sendMessage = useCallback(
+    (text, attachments = []) => sendWithOptimism(text, null, attachments),
+    [sendWithOptimism]
+  );
 
   const retryMessage = useCallback(
     (tempId) => {
       const list = messagesByRoom[activeRoomId] || [];
       const target = list.find((m) => m._id === tempId);
-      if (target) sendWithOptimism(target.text, tempId);
+      if (target) sendWithOptimism(target.text, tempId, target.attachments || []);
     },
     [activeRoomId, messagesByRoom, sendWithOptimism]
   );
