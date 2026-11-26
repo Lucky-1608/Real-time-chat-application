@@ -46,3 +46,31 @@ export const messageReadSchema = z.object({
     .max(100),
   roomId: objectIdSchema.optional(),
 });
+
+export const createRoomSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(3, 'Room name must be at least 3 characters')
+    .max(30, 'Room name must be at most 30 characters'),
+  type: z.enum(['public', 'private']),
+  memberIds: z.array(objectIdSchema).max(50).optional().default([]),
+});
+
+export const createDmSchema = z.object({
+  userId: objectIdSchema,
+});
+
+export const inviteMembersSchema = z.object({
+  memberIds: z.array(objectIdSchema).min(1, 'Select at least one user').max(50),
+});
+
+export const publicRoomsQuerySchema = z.object({
+  q: z.string().trim().max(50).optional().default(''),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+});
+
+export const userSearchQuerySchema = z.object({
+  q: z.string().trim().max(30).optional().default(''),
+});

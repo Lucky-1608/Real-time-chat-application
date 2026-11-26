@@ -3,15 +3,17 @@ import cors from 'cors';
 import helmet from 'helmet';
 import env from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
-import { createAuthRateLimiter } from './middleware/rateLimit.js';
+import { createApiRateLimiter, createAuthRateLimiter } from './middleware/rateLimit.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createMessagesRouter } from './routes/messages.js';
+import { createRoomsRouter } from './routes/rooms.js';
+import { createUsersRouter } from './routes/users.js';
 
 /**
  * Builds the Express application without binding a port so it can be
  * shared between the HTTP server bootstrap and Supertest integration tests.
  */
-export function createApp({ registerRoutes, authRateLimiter } = {}) {
+export function createApp({ registerRoutes, authRateLimiter, apiRateLimiter } = {}) {
   const app = express();
 
   app.use(helmet());
@@ -32,10 +34,16 @@ export function createApp({ registerRoutes, authRateLimiter } = {}) {
     });
   });
 
+  const sharedApiLimiter = apiRateLimiter ?? createApiRateLimiter();
+
   app.use(
     '/api/auth',
     createAuthRouter({ rateLimiter: authRateLimiter ?? createAuthRateLimiter() })
   );
+  app.use('/api/rooms', createRoomsRouter({ rateLimiter: sharedApiLimiter }));
+  app.use('/api/users', createUsersRouter({ rateLimiter: sharedApiLimiter }));
+
+  // Deprecated in favor of GET /api/rooms/:id/messages; kept for backward compatibility with General room clients.
   app.use('/api/messages', createMessagesRouter());
 
   if (typeof registerRoutes === 'function') {
