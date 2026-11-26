@@ -8,6 +8,7 @@ import { createApp } from '../src/app.js';
 import { attachSockets } from '../src/sockets/index.js';
 import User from '../src/models/User.js';
 import Message from '../src/models/Message.js';
+import Room from '../src/models/Room.js';
 
 describe('Phase 2: Authentication, Persistence & Socket Auth', () => {
   let mongoServer;
@@ -25,7 +26,7 @@ describe('Phase 2: Authentication, Persistence & Socket Auth', () => {
   });
 
   beforeEach(async () => {
-    await Promise.all([User.deleteMany({}), Message.deleteMany({})]);
+    await Promise.all([User.deleteMany({}), Message.deleteMany({}), Room.deleteMany({})]);
   });
 
   afterEach(async () => {
@@ -125,9 +126,11 @@ describe('Phase 2: Authentication, Persistence & Socket Auth', () => {
       const reg = await registerUser(app, 'Paginator');
       const { token, user } = reg.body;
 
+      const general = await Room.findOne({ nameLower: 'general', type: 'public' });
       const baseTime = new Date('2026-01-01T12:00:00.000Z').getTime();
       for (let i = 1; i <= 5; i++) {
         await Message.create({
+          room: general._id,
           sender: user.id,
           senderName: user.username,
           text: `msg-${i}`,

@@ -4,6 +4,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { messagesQuerySchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
+import { ensureGeneralRoom } from '../services/roomMigration.js';
 
 export function createMessagesRouter() {
   const router = Router();
@@ -18,11 +19,12 @@ export function createMessagesRouter() {
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid query parameters', 400);
       }
 
-      const { before, after, limit, roomId } = parsed.data;
+      const { before, after, limit } = parsed.data;
+      const { room: generalRoom } = await ensureGeneralRoom();
 
       if (after) {
         const docs = await Message.find({
-          roomId,
+          room: generalRoom._id,
           createdAt: { $gt: new Date(after) },
         })
           .sort({ createdAt: 1 })
@@ -35,7 +37,7 @@ export function createMessagesRouter() {
         });
       }
 
-      const filter = { roomId };
+      const filter = { room: generalRoom._id };
       if (before) {
         filter.createdAt = { $lt: new Date(before) };
       }

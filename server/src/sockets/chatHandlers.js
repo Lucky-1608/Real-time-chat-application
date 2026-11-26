@@ -1,5 +1,6 @@
 import Message, { serializeMessage } from '../models/Message.js';
 import { messageReadSchema, messageSendSchema } from '../utils/validators.js';
+import { ensureGeneralRoom } from '../services/roomMigration.js';
 
 const RATE_WINDOW_MS = 10_000;
 const MAX_MESSAGES_PER_WINDOW = 10;
@@ -38,10 +39,11 @@ export function registerChatHandlers(io, socket) {
     const { text, roomId } = parsed.data;
 
     try {
+      const { room: generalRoom } = await ensureGeneralRoom();
       // Persist before broadcasting so every delivered message is guaranteed durable
       // and has a canonical MongoDB _id and createdAt timestamp.
       const doc = await Message.create({
-        roomId,
+        room: generalRoom._id,
         sender: userId,
         senderName: username,
         text,
@@ -77,8 +79,9 @@ export function registerChatHandlers(io, socket) {
     const { messageIds, roomId } = parsed.data;
 
     try {
+      const { room: generalRoom } = await ensureGeneralRoom();
       await Message.updateMany(
-        { _id: { $in: messageIds }, roomId, sender: { $ne: userId } },
+        { _id: { $in: messageIds }, room: generalRoom._id, sender: { $ne: userId } },
         { $addToSet: { readBy: userId } }
       );
 

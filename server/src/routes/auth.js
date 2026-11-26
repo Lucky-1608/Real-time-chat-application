@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { registerSchema, loginSchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { signToken } from '../middleware/auth.js';
+import { addUserToGeneralRoom } from '../services/roomMigration.js';
 
 const BCRYPT_COST = 10;
 
@@ -37,6 +38,8 @@ export function createAuthRouter({ rateLimiter } = {}) {
         usernameLower,
         passwordHash,
       });
+
+      await addUserToGeneralRoom(user._id);
 
       const serializedUser = user.toJSON();
       const token = signToken(serializedUser);
