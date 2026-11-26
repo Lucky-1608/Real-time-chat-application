@@ -25,6 +25,13 @@ const attachmentSchema = new mongoose.Schema(
     name: { type: String, required: true, trim: true, maxlength: 255 },
     contentType: { type: String, required: true },
     size: { type: Number, required: true, min: 1 },
+    scanStatus: {
+      type: String,
+      enum: ['pending', 'clean', 'rejected'],
+      default: 'pending',
+    },
+    scanReason: { type: String, default: null },
+    scanClaimedAt: { type: Date, default: null },
   },
   { _id: false }
 );
@@ -89,6 +96,7 @@ const messageSchema = new mongoose.Schema(
 
 messageSchema.index({ room: 1, createdAt: -1 });
 messageSchema.index({ room: 1, updatedAt: -1 });
+messageSchema.index({ 'attachments.scanStatus': 1, 'attachments.scanClaimedAt': 1 });
 
 export function serializeReactions(reactions = []) {
   return reactions
@@ -118,6 +126,8 @@ export function serializeMessage(doc) {
           name: a.name,
           contentType: a.contentType,
           size: a.size,
+          scanStatus: a.scanStatus || 'pending',
+          scanReason: a.scanReason || null,
         })),
     editedAt: isDeleted ? null : toIso(doc.editedAt),
     deletedAt: toIso(doc.deletedAt),

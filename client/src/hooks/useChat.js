@@ -379,6 +379,44 @@ export function useChat() {
       });
     };
 
+    const handleAttachmentStatus = ({
+      roomId,
+      messageId,
+      attachmentKey,
+      newKey,
+      status,
+      url,
+      size,
+      reason,
+    }) => {
+      if (!roomId || !messageId || !attachmentKey) return;
+      setMessagesByRoom((prev) => {
+        const list = prev[roomId];
+        if (!list) return prev;
+        return {
+          ...prev,
+          [roomId]: list.map((m) => {
+            if (m._id !== messageId) return m;
+            return {
+              ...m,
+              attachments: (m.attachments || []).map((att) =>
+                att.key === attachmentKey
+                  ? {
+                      ...att,
+                      key: newKey || att.key,
+                      scanStatus: status,
+                      url: status === 'clean' ? url || null : null,
+                      size: size ?? att.size,
+                      scanReason: reason || null,
+                    }
+                  : att
+              ),
+            };
+          }),
+        };
+      });
+    };
+
     const handlePresenceList = (users) => {
       if (Array.isArray(users)) {
         setOnlineUsers(users);
@@ -494,6 +532,7 @@ export function useChat() {
     socket.on('message:updated', handleMessageUpdated);
     socket.on('message:deleted', handleMessageDeleted);
     socket.on('reaction:updated', handleReactionUpdated);
+    socket.on('attachment:status', handleAttachmentStatus);
     socket.on('presence:list', handlePresenceList);
     socket.on('typing:start', handleTypingStart);
     socket.on('typing:stop', handleTypingStop);

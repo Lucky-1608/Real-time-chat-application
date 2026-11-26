@@ -1,5 +1,11 @@
 import crypto from 'node:crypto';
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import env from '../config/env.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -60,8 +66,9 @@ export function createStorageService({
       throw new AppError('Unsupported file type', 400);
     }
 
-    // Generate a random UUID key under uploads/<roomId>/; never trust client filenames for storage keys.
-    const key = `uploads/${roomId}/${crypto.randomUUID()}.${ext}`;
+    // Generate a random UUID key under quarantine/<roomId>/ so untrusted bytes are
+    // scanned and EXIF-stripped before being promoted to uploads/<roomId>/.
+    const key = `quarantine/${roomId}/${crypto.randomUUID()}.${ext}`;
 
     const command = new PutObjectCommand({
       Bucket: bucket,
@@ -121,8 +128,48 @@ export function createStorageService({
     });
   }
 
+  async function getObjectBuffer(key) {
+    if (!isConfigured()) {
+      throw new AppError('File uploads are not configured on this server', 503);
+    }
+    const res = await s3Client.send(
+      new GetObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+    );
+    const bytes = await res.Body.transformToByteArray();
+    return Buffer.from(bytes);
+  }
+
+  async function putObjectBuffer({ key, buffer, contentType }) {
+    if (!isConfigured()) {
+      throw new AppError('File uploads are not configured on this server', 503);
+    }
+    await s3Client.send(
+      new PutObjectCommand({
+        Bucket: bucket,
+        Key: key,
+        Body: buffer,
+        ContentType: contentType,
+        ContentLength: buffer.length,
+      })
+    );
+  }
+
+  async function deleteObject(key) {
+    if (!isConfigured() || !key) return;
+    await s3Client.send(
+      new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+    );
+  }
+
   // Trade-off: Presigned GET URLs are generated on read instead of using a public bucket + CDN.
   // This guarantees only room members can access private/DM files, at the cost of not sharing CDN edge caches.
+  // Files remain non-downloadable (url: null) until the scan worker marks scanStatus === 'clean'.
   async function attachDownloadUrls(messageObj) {
     if (!messageObj?.attachments?.length || !isConfigured()) {
       return messageObj;
@@ -130,7 +177,7 @@ export function createStorageService({
     const attachments = await Promise.all(
       messageObj.attachments.map(async (att) => ({
         ...att,
-        url: await createPresignedDownloadUrl(att),
+        url: att.scanStatus === 'clean' ? await createPresignedDownloadUrl(att) : null,
       }))
     );
     return { ...messageObj, attachments };
@@ -140,6 +187,9 @@ export function createStorageService({
     isConfigured,
     createPresignedUpload,
     verifyUploadedObject,
+    getObjectBuffer,
+    putObjectBuffer,
+    deleteObject,
     createPresignedDownloadUrl,
     attachDownloadUrls,
   };

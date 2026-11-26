@@ -120,13 +120,13 @@ describe('Sub-phase 7.3: Presigned S3/R2 Uploads & Attachment Security', () => {
       .send({ roomId, filename: 'photo.png', contentType: 'image/png', size: 1024 });
     expect(outsiderRes.status).toBe(404);
 
-    // Valid member gets presigned PUT URL and random UUID key under uploads/<roomId>/
+    // Valid member gets presigned PUT URL and random UUID key under quarantine/<roomId>/
     const okRes = await request(app)
       .post('/api/uploads/presign')
       .set('Authorization', `Bearer ${alice.token}`)
       .send({ roomId, filename: 'my secret photo.png', contentType: 'image/png', size: 1024 });
     expect(okRes.status).toBe(200);
-    expect(okRes.body.key).toMatch(new RegExp(`^uploads/${roomId}/[0-9a-f-]+\\.png$`));
+    expect(okRes.body.key).toMatch(new RegExp(`^quarantine/${roomId}/[0-9a-f-]+\\.png$`));
     expect(okRes.body.uploadUrl).toContain(okRes.body.key);
   });
 
@@ -199,9 +199,15 @@ describe('Sub-phase 7.3: Presigned S3/R2 Uploads & Attachment Security', () => {
     const broadcasted = await incomingPromise;
     expect(broadcasted.text).toBe('');
     expect(broadcasted.attachments).toHaveLength(1);
-    expect(broadcasted.attachments[0].url).toContain(`https://mock-s3.local/get/${presignA.body.key}`);
+    expect(broadcasted.attachments[0].scanStatus).toBe('pending');
+    expect(broadcasted.attachments[0].url).toBeNull();
 
-    // History endpoint also attaches presigned GET URLs on the way out
+    // Mark attachment clean (simulating scan worker) and verify history returns presigned GET URL
+    await Message.updateOne(
+      { _id: broadcasted._id, 'attachments.key': presignA.body.key },
+      { $set: { 'attachments.$.scanStatus': 'clean' } }
+    );
+
     const historyRes = await request(app)
       .get(`/api/rooms/${roomAId}/messages`)
       .set('Authorization', `Bearer ${alice.token}`);

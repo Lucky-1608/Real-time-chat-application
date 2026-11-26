@@ -204,6 +204,27 @@ export default function MessageItem({
               {attachments.length > 0 && (
                 <div className={styles.attachments}>
                   {attachments.map((att) => {
+                    const status = att.scanStatus || 'clean';
+                    if (status === 'pending') {
+                      return (
+                        <div key={att.key} className={styles.fileChipPending}>
+                          <span className={styles.fileChipName}>{att.name}</span>
+                          <span className={styles.fileChipSize}>
+                            Scanning… ({formatFileSize(att.size)})
+                          </span>
+                        </div>
+                      );
+                    }
+                    if (status === 'rejected') {
+                      return (
+                        <div key={att.key} className={styles.fileChipRejected}>
+                          <span className={styles.fileChipName}>{att.name}</span>
+                          <span className={styles.fileChipSize}>
+                            Blocked: {att.scanReason || 'Unsafe file'}
+                          </span>
+                        </div>
+                      );
+                    }
                     const src = att.url || att.previewUrl;
                     const isImage = att.contentType?.startsWith('image/');
                     if (isImage && src) {

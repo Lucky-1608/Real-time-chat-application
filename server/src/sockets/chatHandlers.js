@@ -92,7 +92,7 @@ export function registerChatHandlers(
       }
 
       // Re-validate attachment keys so a user cannot reference objects from another room.
-      const expectedPrefix = `uploads/${roomIdStr}/`;
+      const expectedPrefix = `quarantine/${roomIdStr}/`;
       for (const att of attachments) {
         if (!att.key.startsWith(expectedPrefix) || att.key.includes('..')) {
           return respond({ ok: false, error: 'Invalid attachment key for this room' });
@@ -107,7 +107,7 @@ export function registerChatHandlers(
         sender: userId,
         senderName: username,
         text,
-        attachments,
+        attachments: attachments.map((att) => ({ ...att, scanStatus: 'pending' })),
       });
 
       const serialized = await storageService.attachDownloadUrls(serializeMessage(doc));

@@ -46,6 +46,11 @@ const envSchema = z
 
     // Flood control
     NEW_ACCOUNT_RESTRICTION_MINUTES: z.coerce.number().int().min(0).max(1440).default(10),
+
+    // Malware scanning (ClamAV clamd)
+    CLAMD_HOST: z.string().optional().default(''),
+    CLAMD_PORT: z.coerce.number().int().positive().default(3310),
+    SCAN_POLL_INTERVAL_MS: z.coerce.number().int().min(200).max(60_000).default(2000),
   })
   .superRefine((data, ctx) => {
     const anyS3Set = Boolean(
