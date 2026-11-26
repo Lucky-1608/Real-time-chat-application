@@ -47,10 +47,11 @@ export function decryptField(payload, { keysById } = {}) {
   }
   const [keyId, ivHex, tagHex, cipherHex] = parts;
   const ring = keysById || buildKeyRing();
-  const keyBuf = ring.get(keyId);
-  if (!keyBuf) {
+  const rawOrBuf = ring.get(keyId);
+  if (!rawOrBuf) {
     throw new Error(`Unknown encryption keyId: ${keyId}`);
   }
+  const keyBuf = Buffer.isBuffer(rawOrBuf) ? rawOrBuf : deriveKey32(rawOrBuf);
 
   const decipher = crypto.createDecipheriv('aes-256-gcm', keyBuf, Buffer.from(ivHex, 'hex'));
   decipher.setAuthTag(Buffer.from(tagHex, 'hex'));
@@ -59,4 +60,13 @@ export function decryptField(payload, { keysById } = {}) {
     decipher.final(),
   ]);
   return decrypted.toString('utf8');
+}
+
+export function rotateEncryptedField(
+  payload,
+  { keysById, newKeyId = env.ENCRYPTION_KEY_ID, newKey = env.ENCRYPTION_KEY } = {}
+) {
+  const plaintext = decryptField(payload, { keysById });
+  if (plaintext === null) return null;
+  return encryptField(plaintext, { keyId: newKeyId, key: newKey });
 }

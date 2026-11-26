@@ -12,6 +12,7 @@ import { getRoomIfMember } from '../services/roomAccess.js';
 import { assertCan, can } from '../services/permissions.js';
 import { revokeAllUserSessions } from '../services/sessionService.js';
 import { audit } from '../services/auditService.js';
+import { decryptField, encryptField } from '../services/cryptoService.js';
 import env from '../config/env.js';
 
 export function createReportsRouter({ rateLimiter, reportRateLimiter } = {}) {
@@ -69,7 +70,8 @@ export function createReportsRouter({ rateLimiter, reportRateLimiter } = {}) {
         targetUser,
         roomId: room._id,
         reason,
-        note,
+        note: '',
+        noteEnc: note ? encryptField(note) : null,
         messageSnapshot,
       });
 
@@ -120,7 +122,13 @@ export function createReportsRouter({ rateLimiter, reportRateLimiter } = {}) {
         .populate('targetUser', 'username')
         .lean();
 
-      res.status(200).json({ reports });
+      const decrypted = reports.map((r) => ({
+        ...r,
+        note: r.noteEnc ? decryptField(r.noteEnc) : r.note || '',
+        noteEnc: undefined,
+      }));
+
+      res.status(200).json({ reports: decrypted });
     })
   );
 

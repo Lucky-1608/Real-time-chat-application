@@ -17,6 +17,7 @@ export default function RoomHeader({
   onSummarize,
   summaryLoading = false,
   onOpenSecurity,
+  onOpenAdmin,
   onLogout,
 }) {
   const [membersOpen, setMembersOpen] = useState(false);
@@ -124,6 +125,17 @@ export default function RoomHeader({
         >
           Security
         </button>
+
+        {currentUser?.globalRole === 'admin' && (
+          <button
+            type="button"
+            className={styles.actionBtn}
+            onClick={onOpenAdmin}
+            title="Admin Dashboard"
+          >
+            Admin
+          </button>
+        )}
 
         <button type="button" className={styles.logoutBtn} onClick={onLogout}>
           Sign out

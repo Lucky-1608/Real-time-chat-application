@@ -15,6 +15,7 @@ import { createUsersRouter } from './routes/users.js';
 import { createUploadsRouter } from './routes/uploads.js';
 import { createAdminRouter } from './routes/admin.js';
 import { createReportsRouter } from './routes/reports.js';
+import { createAccountRouter } from './routes/account.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
 import { defaultPasswordService } from './services/passwordService.js';
@@ -114,6 +115,10 @@ export function createApp({
   app.use('/api/uploads', createUploadsRouter({ rateLimiter: sharedApiLimiter, storageService, floodControl }));
   app.use('/api/admin', createAdminRouter({ rateLimiter: sharedApiLimiter }));
   app.use('/api/reports', createReportsRouter({ rateLimiter: sharedApiLimiter }));
+  app.use(
+    '/api/account',
+    createAccountRouter({ rateLimiter: sharedApiLimiter, storageService, passwordService })
+  );
 
   // Deprecated in favor of GET /api/rooms/:id/messages; kept for backward compatibility with General room clients.
   app.use('/api/messages', createMessagesRouter());

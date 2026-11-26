@@ -40,6 +40,10 @@ const reportSchema = new mongoose.Schema(
       maxlength: 1000,
       default: '',
     },
+    noteEnc: {
+      type: String,
+      default: null,
+    },
     // Immutable snapshot of the reported message text at report creation time so
     // moderators still have evidence even if the author edits or deletes it later.
     messageSnapshot: {
