@@ -49,6 +49,9 @@ export function useChat() {
 
   const [typingByRoom, setTypingByRoom] = useState({});
   const [unreadByRoom, setUnreadByRoom] = useState({});
+  const [summaryByRoom, setSummaryByRoom] = useState({});
+  const [summaryLoadingByRoom, setSummaryLoadingByRoom] = useState({});
+  const [summaryErrorByRoom, setSummaryErrorByRoom] = useState({});
   const [connectionStatus, setConnectionStatus] = useState('connecting');
   const [onlineUsers, setOnlineUsers] = useState([]);
   const [userDirectory, setUserDirectory] = useState(() =>
@@ -732,6 +735,32 @@ export function useChat() {
     await apiFetch(`/api/rooms/${roomId}`, { method: 'DELETE' });
   }, []);
 
+  const requestSummary = useCallback(async (roomId, { force = false } = {}) => {
+    if (!roomId) return;
+    setSummaryLoadingByRoom((prev) => ({ ...prev, [roomId]: true }));
+    setSummaryErrorByRoom((prev) => ({ ...prev, [roomId]: null }));
+    try {
+      const data = await apiFetch(`/api/rooms/${roomId}/summary`, {
+        method: 'POST',
+        body: JSON.stringify({ force }),
+      });
+      setSummaryByRoom((prev) => ({ ...prev, [roomId]: data }));
+    } catch (err) {
+      setSummaryErrorByRoom((prev) => ({
+        ...prev,
+        [roomId]: err.message || 'Failed to generate summary',
+      }));
+    } finally {
+      setSummaryLoadingByRoom((prev) => ({ ...prev, [roomId]: false }));
+    }
+  }, []);
+
+  const dismissSummary = useCallback((roomId) => {
+    if (!roomId) return;
+    setSummaryByRoom((prev) => ({ ...prev, [roomId]: null }));
+    setSummaryErrorByRoom((prev) => ({ ...prev, [roomId]: null }));
+  }, []);
+
   const activeRoom = useMemo(
     () => rooms.find((r) => r._id === activeRoomId) || null,
     [rooms, activeRoomId]
@@ -750,6 +779,9 @@ export function useChat() {
     historyError: errorByRoom[activeRoomId] || null,
     typingUsers: typingByRoom[activeRoomId] || [],
     unreadByRoom,
+    summary: summaryByRoom[activeRoomId] || null,
+    summaryLoading: Boolean(summaryLoadingByRoom[activeRoomId]),
+    summaryError: summaryErrorByRoom[activeRoomId] || null,
     connectionStatus,
     onlineUsers,
     userDirectory,
@@ -768,5 +800,7 @@ export function useChat() {
     inviteMembers,
     leaveRoom,
     deleteRoom,
+    requestSummary,
+    dismissSummary,
   };
 }

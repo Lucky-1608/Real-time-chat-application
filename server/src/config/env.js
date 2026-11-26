@@ -18,6 +18,10 @@ const envSchema = z
     S3_BUCKET: z.string().optional().default(''),
     S3_ACCESS_KEY_ID: z.string().optional().default(''),
     S3_SECRET_ACCESS_KEY: z.string().optional().default(''),
+
+    // Optional: Anthropic Claude API for room summaries (never exposed to client)
+    ANTHROPIC_API_KEY: z.string().optional().default(''),
+    ANTHROPIC_MODEL: z.string().min(1).default('claude-haiku-4-5-20251001'),
   })
   .superRefine((data, ctx) => {
     const anyS3Set = Boolean(

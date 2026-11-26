@@ -33,6 +33,9 @@ export default function ChatWindow() {
     historyError,
     typingUsers,
     unreadByRoom,
+    summary,
+    summaryLoading,
+    summaryError,
     connectionStatus,
     onlineUsers,
     userDirectory,
@@ -51,6 +54,8 @@ export default function ChatWindow() {
     inviteMembers,
     leaveRoom,
     deleteRoom,
+    requestSummary,
+    dismissSummary,
   } = useChat();
 
   const { notifyTyping, stopTyping } = useTypingIndicator(emitTypingStart, emitTypingStop);
@@ -107,6 +112,8 @@ export default function ChatWindow() {
             onLeaveRoom={leaveRoom}
             onDeleteRoom={deleteRoom}
             onStartDm={startDm}
+            onSummarize={() => requestSummary(activeRoomId)}
+            summaryLoading={summaryLoading}
             onLogout={logout}
           />
 
@@ -121,6 +128,12 @@ export default function ChatWindow() {
               loadingHistory={loadingHistory}
               loadingOlder={loadingOlder}
               historyError={historyError}
+              unreadCount={unreadByRoom[activeRoomId] || 0}
+              summary={summary}
+              summaryLoading={summaryLoading}
+              summaryError={summaryError}
+              onRequestSummary={(force) => requestSummary(activeRoomId, { force })}
+              onDismissSummary={() => dismissSummary(activeRoomId)}
               onLoadOlder={loadOlderMessages}
               onRetry={retryMessage}
               onEdit={editMessage}

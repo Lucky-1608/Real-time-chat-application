@@ -3,13 +3,14 @@ import cors from 'cors';
 import helmet from 'helmet';
 import env from './config/env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
-import { createApiRateLimiter, createAuthRateLimiter } from './middleware/rateLimit.js';
+import { createApiRateLimiter, createAuthRateLimiter, createSummaryRateLimiter } from './middleware/rateLimit.js';
 import { createAuthRouter } from './routes/auth.js';
 import { createMessagesRouter } from './routes/messages.js';
 import { createRoomsRouter } from './routes/rooms.js';
 import { createUsersRouter } from './routes/users.js';
 import { createUploadsRouter } from './routes/uploads.js';
 import { defaultStorageService } from './services/storage.js';
+import { defaultSummaryService } from './services/summaryService.js';
 
 /**
  * Builds the Express application without binding a port so it can be
@@ -19,7 +20,9 @@ export function createApp({
   registerRoutes,
   authRateLimiter,
   apiRateLimiter,
+  summaryRateLimiter,
   storageService = defaultStorageService,
+  summaryService = defaultSummaryService,
 } = {}) {
   const app = express();
 
@@ -47,7 +50,15 @@ export function createApp({
     '/api/auth',
     createAuthRouter({ rateLimiter: authRateLimiter ?? createAuthRateLimiter() })
   );
-  app.use('/api/rooms', createRoomsRouter({ rateLimiter: sharedApiLimiter, storageService }));
+  app.use(
+    '/api/rooms',
+    createRoomsRouter({
+      rateLimiter: sharedApiLimiter,
+      summaryRateLimiter: summaryRateLimiter ?? createSummaryRateLimiter(),
+      storageService,
+      summaryService,
+    })
+  );
   app.use('/api/users', createUsersRouter({ rateLimiter: sharedApiLimiter }));
   app.use('/api/uploads', createUploadsRouter({ rateLimiter: sharedApiLimiter, storageService }));
 

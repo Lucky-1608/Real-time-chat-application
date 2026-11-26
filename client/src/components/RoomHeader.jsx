@@ -12,6 +12,8 @@ export default function RoomHeader({
   onLeaveRoom,
   onDeleteRoom,
   onStartDm,
+  onSummarize,
+  summaryLoading = false,
   onLogout,
 }) {
   const [membersOpen, setMembersOpen] = useState(false);
@@ -61,6 +63,18 @@ export default function RoomHeader({
       </div>
 
       <div className={styles.actions}>
+        {room && (
+          <button
+            type="button"
+            className={styles.actionBtn}
+            onClick={onSummarize}
+            disabled={summaryLoading}
+            title="Summarize unread or recent messages"
+          >
+            {summaryLoading ? 'Summarizing…' : 'Catch me up'}
+          </button>
+        )}
+
         {room?.type === 'private' && isOwner && (
           <button type="button" className={styles.actionBtn} onClick={onInviteClick}>
             Invite

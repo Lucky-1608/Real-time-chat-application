@@ -13,6 +13,7 @@ import {
   messagesQuerySchema,
   publicRoomsQuerySchema,
   roomChangesQuerySchema,
+  roomSummarySchema,
 } from '../utils/validators.js';
 import { assertRoomOwner, getRoomIfMember, parseRoomId } from '../services/roomAccess.js';
 import {
@@ -23,12 +24,18 @@ import {
   MAX_ROOMS_PER_USER,
   serializeRoom,
 } from '../services/roomService.js';
+import { defaultSummaryService } from '../services/summaryService.js';
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-export function createRoomsRouter({ rateLimiter, storageService } = {}) {
+export function createRoomsRouter({
+  rateLimiter,
+  summaryRateLimiter,
+  storageService,
+  summaryService = defaultSummaryService,
+} = {}) {
   const router = Router();
 
   router.use(requireAuth);
@@ -440,6 +447,62 @@ export function createRoomsRouter({ rateLimiter, storageService } = {}) {
         userId: req.user.id,
         since: parsed.data.since,
         storageService,
+      });
+
+      res.status(200).json(result);
+    })
+  );
+
+  // POST /api/rooms/:id/summary — AI "Catch me up" summary of unread (or recent 50) non-deleted messages
+  router.post(
+    '/:id/summary',
+    ...(summaryRateLimiter ? [summaryRateLimiter] : []),
+    asyncHandler(async (req, res) => {
+      const parsed = roomSummarySchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid summary request', 400);
+      }
+
+      const { sinceMessageId, force } = parsed.data;
+      const { room, member } = await getRoomIfMember(req.params.id, req.user.id);
+
+      let sinceDate = member.lastReadAt || member.joinedAt || new Date(0);
+      if (sinceMessageId) {
+        const anchor = await Message.findOne(
+          { _id: sinceMessageId, room: room._id },
+          { createdAt: 1 }
+        ).lean();
+        if (anchor?.createdAt) {
+          sinceDate = anchor.createdAt;
+        }
+      }
+
+      // Load up to 200 unread non-deleted messages (oldest first).
+      let docs = await Message.find({
+        room: room._id,
+        deletedAt: null,
+        createdAt: { $gt: sinceDate },
+      })
+        .sort({ createdAt: 1 })
+        .limit(200)
+        .lean();
+
+      // Fall back to the most recent 50 non-deleted messages if nothing is unread.
+      if (docs.length === 0) {
+        docs = await Message.find({
+          room: room._id,
+          deletedAt: null,
+        })
+          .sort({ createdAt: -1 })
+          .limit(50)
+          .lean();
+        docs.reverse();
+      }
+
+      const result = await summaryService.summarize({
+        roomId: room._id.toString(),
+        messages: docs,
+        force,
       });
 
       res.status(200).json(result);

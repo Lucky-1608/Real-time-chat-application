@@ -136,3 +136,11 @@ export const reactionToggleSchema = z.object({
   }),
   emoji: z.enum(ALLOWED_REACTIONS, { message: 'Unsupported reaction emoji' }),
 });
+
+export const roomSummarySchema = z.object({
+  sinceMessageId: z
+    .string()
+    .refine((val) => mongoose.isValidObjectId(val), { message: 'Invalid sinceMessageId' })
+    .optional(),
+  force: z.boolean().optional().default(false),
+});

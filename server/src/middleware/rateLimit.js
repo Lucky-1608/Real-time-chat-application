@@ -23,3 +23,14 @@ export function createApiRateLimiter({ max = 200, windowMs = 60 * 1000 } = {}) {
     message: { error: 'Too many requests, please slow down' },
   });
 }
+
+export function createSummaryRateLimiter({ max = 5, windowMs = 60 * 60 * 1000 } = {}) {
+  return rateLimit({
+    windowMs,
+    max,
+    keyGenerator: (req) => req.user?.id || req.ip,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: { error: 'Summary limit reached (max 5 per hour). Please try again later.' },
+  });
+}
