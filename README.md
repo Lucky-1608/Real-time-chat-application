@@ -1,6 +1,6 @@
-# PulseChat — Real-Time Group Chat, Rooms & Direct Messages
+# PulseChat — Real-Time Group Chat, Rooms, Uploads & AI Summaries
 
-A production-style, full-stack real-time chat application built with Node.js, Express, Socket.io, MongoDB/Mongoose, and React 18 (Vite). Supports public & private rooms, 1-to-1 direct messages, JWT authentication, persistent cursor-paginated history, multi-tab presence, room-scoped typing indicators, and read receipts.
+A production-style, full-stack real-time chat application built with Node.js, Express, Socket.io, MongoDB/Mongoose, S3/R2 presigned storage, Anthropic Claude AI summaries, and React 18 (Vite).
 
 **Live Demo:** `https://your-deployed-client.vercel.app` *(replace with your deployed URL)*
 
@@ -9,12 +9,11 @@ A production-style, full-stack real-time chat application built with Node.js, Ex
 ## Features
 
 - **Public Rooms, Private Rooms & 1-to-1 DMs:** Seeded `"General"` public room (auto-joined on registration), discoverable public rooms, owner-managed invite-only private rooms, and race-safe deduplicated DMs.
-- **JWT Authentication:** Case-insensitive unique usernames, bcrypt password hashing (cost 10), Zod request validation, generic auth errors, and IP-based auth rate limiting.
-- **Persistent Message History:** Cursor-paginated (`before` / `after`) history per room stored in MongoDB with `{ room: 1, createdAt: -1 }`.
-- **Real-Time Messaging:** Persist-first Socket.io delivery scoped to `room:<roomId>` with optimistic UI updates, retry on failure, and per-socket sliding-window rate limiting (10 messages / 10s across all rooms).
-- **Multi-Tab Online Presence & Personal Channels:** `Map<userId, connectionCount>` tracks connections per user; `user:<userId>` personal channels deliver live room invites, DM creations, and multi-tab unread syncs without reconnecting.
-- **Typing Indicators & Read Receipts:** Room-scoped throttled typing indicators (cleared on send, idle, blur, and disconnect) and `IntersectionObserver` + tab-focus gated read receipts (`$addToSet` + `members.lastReadAt`).
-- **Reconnect Catch-Up & URL Routing:** `/rooms/:id` URL state with refresh/back-button support, and automatic per-room `?after=` catch-up on reconnect deduplicated by `_id`.
+- **Message Lifecycle:** 15-minute author-only inline editing (`(edited)`), soft-delete by author or room-owner moderation (`"This message was deleted"` tombstone), and `updatedAt`-based `/changes` sync on reconnect.
+- **Atomic Emoji Reactions:** 6-emoji allowlist (`👍 ❤️ 😂 🎉 😮 🙏`) updated via atomic MongoDB `$addToSet` / `$pull` operations with hover picker and reactor tooltips.
+- **Direct-to-Storage Uploads:** Presigned S3/R2 PUT uploads with progress, cancel/retry, drag-and-drop, clipboard paste, lazy-loaded inline images with lightbox, and private-bucket presigned GET URLs.
+- **AI "Catch me up" Summaries:** Server-side Claude API summary of unread (or recent 50) non-deleted messages with prompt-injection delimiters, 5-minute caching, and strict per-user rate limiting.
+- **JWT Auth, Presence, Typing & Read Receipts:** Case-insensitive unique usernames, multi-tab presence, room-scoped typing indicators, and `IntersectionObserver` + tab-focus gated read receipts.
 
 ---
 
@@ -22,9 +21,11 @@ A production-style, full-stack real-time chat application built with Node.js, Ex
 
 ```mermaid
 flowchart LR
-  Browser["React 18 + Vite Client (/rooms/:id)"] -->|"REST (HTTPS + Bearer JWT)"| Express["Express API (/api/auth, /api/rooms, /api/users)"]
+  Browser["React 18 + Vite Client (/rooms/:id)"] -->|"REST (HTTPS + Bearer JWT)"| Express["Express API (/api/auth, /api/rooms, /api/users, /api/uploads)"]
   Browser <-->|"WebSocket (WSS + auth.token)"| SocketIO["Socket.io Server (Shared HTTP Port)"]
+  Browser -->|"Direct Presigned PUT / GET"| S3["S3 / Cloudflare R2 (Private Bucket)"]
   Express -->|"RoomAccess Gate"| Mongo["MongoDB Atlas (Users, Rooms, Messages)"]
+  Express -->|"Summary (Server-Only Key)"| Claude["Anthropic Claude API"]
   SocketIO -->|"room:<id> & user:<id> channels"| Mongo
   SocketIO --> Presence["In-Memory Presence Map (userId -> count)"]
 ```
@@ -36,8 +37,8 @@ flowchart LR
 All room-scoped REST endpoints and Socket.io handlers pass through [`server/src/services/roomAccess.js`](server/src/services/roomAccess.js) (`getRoomIfMember` / `assertRoomOwner`):
 1. Every `roomId` is validated with `mongoose.isValidObjectId` via Zod before any database query (`400` on malformed IDs).
 2. Non-members receive `403` for public rooms and `404` for private rooms and DMs so private room existence cannot be enumerated via IDOR.
-3. Only members can read history, send messages, emit typing, or mark messages read.
-4. Only the room `owner` can invite users to a private room or delete a non-General room.
+3. Only members can read history, send/edit/react to messages, presign/attach files, request AI summaries, emit typing, or mark messages read.
+4. Only the room `owner` can invite users to a private room, delete a non-General room, or moderate (soft-delete) other users' messages.
 
 ---
 
@@ -57,6 +58,9 @@ All room-scoped REST endpoints and Socket.io handlers pass through [`server/src/
 | `DELETE` | `/api/rooms/:id/members/me` | Bearer JWT | — | `200 { ok, roomId }` |
 | `DELETE` | `/api/rooms/:id` | Owner JWT | — | `200 { ok, roomId }` |
 | `GET` | `/api/rooms/:id/messages` | Member JWT | `?before=<ISO>&after=<ISO>&limit=50` | `200 { messages, hasMore }` |
+| `GET` | `/api/rooms/:id/changes` | Member JWT | `?since=<ISO>` | `200 { changes }` (new, edited, and deleted messages) |
+| `POST` | `/api/rooms/:id/summary` | Member JWT (5/hr) | `{ sinceMessageId?, force? }` | `200 { summary, messageCount, generatedAt, cached }` |
+| `POST` | `/api/uploads/presign` | Member JWT | `{ roomId, filename, contentType, size }` | `200 { uploadUrl, key, expiresIn }` |
 | `GET` | `/api/users` | Bearer JWT | `?q=<prefix>` | `200 { users }` (max 20, excludes self) |
 | `GET` | `/api/messages` *(deprecated)* | Bearer JWT | `?before=&after=&limit=50` | `200 { messages, hasMore }` (General room fallback) |
 
@@ -68,11 +72,17 @@ All socket connections require a valid JWT in `socket.handshake.auth.token` (rej
 
 | Event | Direction | Payload | Purpose |
 | :--- | :--- | :--- | :--- |
-| `message:send` | Client → Server | `{ roomId, text }`, ack `(res)` | Validates membership, persists to MongoDB, emits `message:new` & `room:unread`, acks `{ ok, id }` |
-| `message:new` | Server → Client | `{ _id, room, sender, senderName, text, readBy, createdAt }` | Delivers persisted message to `room:<roomId>` |
+| `message:send` | Client → Server | `{ roomId, text?, attachments? }`, ack `(res)` | Validates membership & key prefix, persists, emits `message:new` & `room:unread`, acks `{ ok, id }` |
+| `message:new` | Server → Client | `{ _id, room, sender, senderName, text, attachments, reactions, readBy, createdAt }` | Delivers persisted message (with presigned GET URLs) to `room:<roomId>` |
+| `message:edit` | Client → Server | `{ roomId, messageId, text }`, ack `(res)` | Author-only within 15m; persists and emits `message:updated` |
+| `message:updated` | Server → Client | Full serialized message with `editedAt` | Updates message in `room:<roomId>` |
+| `message:delete` | Client → Server | `{ roomId, messageId }`, ack `(res)` | Author or room owner; soft-deletes (`text: ""`) and emits `message:deleted` |
+| `message:deleted` | Server → Client | `{ roomId, messageId, deletedAt }` | Replaces message with tombstone in `room:<roomId>` |
+| `reaction:toggle` | Client → Server | `{ roomId, messageId, emoji }`, ack `(res)` | Atomic `$addToSet`/`$pull` on allowlisted emoji; emits `reaction:updated` |
+| `reaction:updated` | Server → Client | `{ roomId, messageId, reactions }` | Replaces message's `reactions` array in `room:<roomId>` |
 | `typing:start` | Bidirectional | Client: `{ roomId }` / Server: `{ roomId, userId, username }` | Relays active typing state to `room:<roomId>` |
-| `typing:stop` | Bidirectional | Client: `{ roomId }` / Server: `{ roomId, userId, username }` | Clears typing indicator on idle, send, blur, or disconnect across all rooms |
-| `message:read` | Bidirectional | Client: `{ roomId, messageIds }` / Server: `{ roomId, messageIds, userId, username }` | `$addToSet` on `readBy`, updates `members.lastReadAt`, emits to room & syncs `room:unread` |
+| `typing:stop` | Bidirectional | Client: `{ roomId }` / Server: `{ roomId, userId, username }` | Clears typing indicator on idle, send, blur, or disconnect |
+| `message:read` | Bidirectional | Client: `{ roomId, messageIds }` / Server: `{ roomId, messageIds, userId, username }` | `$addToSet` on `readBy`, updates `members.lastReadAt`, syncs `room:unread` |
 | `room:created` | Server → Client | `{ room }` | Sent to `user:<id>` when invited to a private room or when a DM is created |
 | `room:joined` | Server → Client | `{ room }` or `{ roomId, user / addedMemberIds }` | Updates live membership in sidebar & room header |
 | `room:left` | Server → Client | `{ roomId, userId?, deleted? }` | Removes room or member live and detaches sockets via `socketsLeave` |
@@ -82,17 +92,59 @@ All socket connections require a valid JWT in `socket.handshake.auth.token` (rej
 
 ---
 
-## Local Setup & Migration
+## Message Lifecycle
 
-### Prerequisites
-- Node.js 20+
-- MongoDB (local Docker `mongo:7` or MongoDB Atlas free tier)
+- **Soft Delete Rationale:** Deleting a message sets `deletedAt`, records `deletedBy`, and clears `text` to `""`, `reactions` to `[]`, and `attachments` to `[]` on the server so deleted content is never retained or leaked via REST or sockets. Keeping the document preserves chronological ordering, read receipts, and unread counts. *Trade-off:* `originalText` is not stored (no edit-history audit log).
+- **Edit Window:** Authors can edit non-deleted messages within 15 minutes (`EDIT_WINDOW_MS = 15 * 60 * 1000`). Reconnecting clients query `GET /api/rooms/:id/changes?since=<updatedAt>` to pick up edits and deletes that happened while offline.
+- **Whole Reactions Array:** `reaction:updated` broadcasts the full `reactions` array (`[{ emoji, users }]`) rather than incremental `+1/-1` deltas so clients can never drift out of sync under concurrent toggles.
+
+---
+
+## Uploads
+
+```mermaid
+sequenceDiagram
+  participant C as React Client
+  participant S as Express + Socket.io Server
+  participant B as S3 / R2 Private Bucket
+
+  C->>S: POST /api/uploads/presign { roomId, filename, contentType, size }
+  S->>S: Validate type (no SVG), <=10MB, getRoomIfMember
+  S-->>C: { uploadUrl (5m PUT), key: "uploads/<roomId>/<uuid>.<ext>" }
+  C->>B: PUT uploadUrl (direct bytes with progress)
+  C->>S: socket message:send { roomId, text, attachments: [{ key, ... }] }
+  S->>S: Verify key starts with uploads/<roomId>/ & HEAD object
+  S->>B: Sign 15m GET URLs (Content-Disposition: attachment for non-images)
+  S-->>C: Emit message:new with presigned GET url
+```
+
+- **Security:** Content-type allowlist (`png`, `jpeg`, `webp`, `gif`, `pdf`, `txt`), 10 MB max at both Zod presign and S3 `ContentLength` condition, random UUID keys, `uploads/<roomId>/` prefix enforcement on `message:send`, `Content-Disposition: attachment` for non-images, bucket CORS restricted to `CLIENT_URL`, and **no SVG uploads** (SVGs can embed `<script>` tags and execute JS if rendered inline, creating a stored XSS vector).
+- **Private Bucket vs. Public Bucket + CDN:** Returning short-lived presigned GET URLs on read guarantees only current room members can fetch private/DM files, at the trade-off of not sharing edge CDN caches across unique URL signatures.
+
+---
+
+## AI Summaries
+
+- **Prompt-Injection Defense:** `POST /api/rooms/:id/summary` loads up to 200 non-deleted unread messages (or last 50), formats them as `senderName: text [attached: filename]`, caps input at 16,000 chars, wraps them in `<untrusted_chat_transcript>...</untrusted_chat_transcript>`, and instructs Claude in the system prompt to treat the transcript strictly as passive untrusted data and ignore any embedded instructions.
+- **Cost Controls & Caching:** `ANTHROPIC_API_KEY` and `ANTHROPIC_MODEL` live strictly on the server. The route is rate-limited to **5 requests/hour per user**, uses a 15-second `AbortController` timeout, and caches summaries by `${roomId}:${lastMessageId}` for 5 minutes (bypassed only on explicit `"Regenerate"`).
+
+---
+
+## Cost & Abuse Controls
+
+- **Upload Limits:** Max 10 MB per file, max 4 attachments per message, 5-minute presigned PUT expiry, and `uploads/<roomId>/` prefix checks prevent storage abuse and cross-room scraping.
+- **Summary Rate Limits:** 5 summaries/hour per user + 16,000-char input cap + 450 `max_tokens` output cap + 5-minute cache bound LLM spend.
+- **Production Monitoring:** Track S3 bucket storage growth & orphaned presigned uploads (lifecycle rule to expire unreferenced `uploads/` objects if needed), Anthropic token spend & `502` error rates, and Socket.io rate-limit triggers.
+
+---
+
+## Local Setup & Migration
 
 ### 1. Server
 ```bash
 cd server
 cp .env.example .env
-# Edit .env with your MONGO_URI and a 32+ character JWT_SECRET
+# Edit .env with MONGO_URI, 32+ char JWT_SECRET, and optional S3_* / ANTHROPIC_* vars
 npm install
 npm run migrate:rooms   # idempotent: seeds General room & migrates legacy messages
 npm run dev
@@ -115,44 +167,32 @@ cd client && npm run lint && npm run build
 
 ---
 
-## Design Decisions & Hardening
+## Design Decisions & Scaling
 
-- **Embedded `members` vs. Separate `Membership` Collection:** `Room.members` embeds `{ user, role, joinedAt, lastReadAt }` directly inside each `Room` document and is capped at `MAX_MEMBERS_PER_ROOM = 100` (and `MAX_ROOMS_PER_USER = 50`). This makes room authorization and member-list rendering a single document read. *When to switch:* If rooms grow to thousands of members (e.g., Discord-sized servers), move `members` to a dedicated `Membership` collection to avoid the 16 MB BSON limit and write contention on the `Room` document.
-- **`dmKey` for Race-Safe DMs:** `dmKey = [idA, idB].sort().join(':')` with a `{ unique: true, sparse: true }` index guarantees two users can never create duplicate DMs even under simultaneous `POST /api/rooms/dm` calls (any `E11000` falls back to returning the existing room).
-- **Personal `user:<id>` Channels for Live Joins:** Inviting or adding a user calls `io.in('user:' + id).socketsJoin('room:' + roomId)` and emits `room:created` to `user:<id>`, so all open tabs of that user receive messages immediately without refreshing.
-- **Authorization at the Handler Level:** Every REST route and socket event calls `getRoomIfMember` before reading or mutating data; Socket.io room membership is never treated as a substitute for server-side authorization.
-- **Unread Count Cost Trade-Off:** `GET /api/rooms` computes `unreadCount` via indexed `countDocuments({ room, createdAt: { $gt: lastReadAt }, sender: { $ne: userId } })` using `{ room: 1, createdAt: -1 }`. This is fast up to `MAX_ROOMS_PER_USER = 50`; at larger scale, we would maintain a denormalized per-`(user, room)` counter incremented on `message:send` and reset on `message:read`.
-- **Scaling Beyond One Server:** With multiple Node.js instances, in-memory Socket.io rooms and presence maps do not cross process boundaries. Add `@socket.io/redis-adapter` so `io.to('room:' + id)` and `io.in('user:' + id).socketsJoin(...)` propagate across all nodes, and move the presence map to Redis hashes (`HINCRBY`).
-
----
-
-## Security Checklist & Trade-offs
-
-- **Helmet & Strict CORS:** `helmet()` sets security headers; CORS is restricted to `env.CLIENT_URL` on both Express and Socket.io.
-- **Input Validation:** Every REST body/query and Socket payload is validated with `zod` (`mongoose.isValidObjectId` for all IDs; room names restricted to `[a-zA-Z0-9 _-]+` and case-insensitively unique for public rooms).
-- **Rate Limiting:** Auth routes: 10 req / 15 min per IP; Room/User API routes: 200 req / min per IP; `message:send`: 10 msgs / 10s per socket.
-- **XSS Prevention:** React escapes all text by default (`dangerouslySetInnerHTML` is never used).
-- **`localStorage` vs `httpOnly` Cookies:** JWT is stored in `localStorage` so it can be attached cleanly to both `fetch` headers and `socket.handshake.auth.token` across separate Vercel/Render origins; `httpOnly` cookies avoid JS token access but require same-site cookie/CSRF configuration.
+- **Embedded `members` vs. Separate `Membership` Collection:** `Room.members` embeds `{ user, role, joinedAt, lastReadAt }` (capped at `50` rooms/user and `100` members/room) for single-query auth; switch to a `Membership` collection if rooms scale to thousands of members.
+- **`dmKey` for Race-Safe DMs:** `minId:maxId` with a unique sparse index prevents duplicate DMs under concurrent `POST /api/rooms/dm` calls.
+- **Personal `user:<id>` Channels:** Live joins/invites call `io.in('user:' + id).socketsJoin('room:' + roomId)` so all open tabs update without reconnecting.
+- **Scaling Beyond One Server:** Add `@socket.io/redis-adapter` so `io.to('room:' + id)` and `socketsJoin`/`socketsLeave` cross Node instances, and move presence counts to Redis.
 
 ---
 
 ## Deployment Guide
 
-1. **MongoDB Atlas:** Create a free M0 cluster, create a DB user, allow server IPs under **Network Access**, and copy the `mongodb+srv://...` URI.
-2. **Server on Render (`render.yaml`):** Root directory `server`, build `npm ci`, start `npm start`, health check `/health`, env vars `NODE_ENV=production`, `PORT=4000`, `MONGO_URI`, `JWT_SECRET` (32+ chars), `CLIENT_URL` (exact frontend origin, no trailing slash).
-3. **Client on Vercel / Netlify (`client/vercel.json`, `client/public/_redirects`):** Root directory `client`, build `npm run build`, output `dist`, env var `VITE_API_URL`.
-4. **Cold-start note:** Free-tier Render instances spin down after 15 minutes of inactivity; the first request/WS handshake after idle may take 30–50 seconds.
+1. **MongoDB Atlas:** Free M0 cluster, DB user, Network Access allowlist.
+2. **Server on Render (`render.yaml`):** `rootDir: server`, `npm ci` / `npm start`, `/health`, set `MONGO_URI`, `JWT_SECRET`, `CLIENT_URL` (exact origin, no trailing slash), plus optional `S3_*` and `ANTHROPIC_*` env vars.
+3. **Client on Vercel / Netlify (`client/vercel.json`, `client/public/_redirects`):** `rootDir: client`, `npm run build`, `dist`, `VITE_API_URL`.
 
 ---
 
 ## Interview Talking Points
 
-1. **Why persist before broadcast?** Persisting to MongoDB *before* emitting `message:new` guarantees every delivered message has a canonical `_id` and `createdAt`, prevents phantom messages on refresh if the DB write fails, and lets the ack callback confirm durability.
-2. **How does presence handle multiple tabs?** A `Map<userId, { userId, username, count }>` increments on connect and decrements on disconnect, broadcasting offline only when `count === 0`.
-3. **How is JWT shared between REST and sockets?** Both use `verifyToken()` against `JWT_SECRET`: REST via `Authorization: Bearer <token>`, sockets via `socket.handshake.auth.token`.
-4. **Why cursor pagination (`before` / `after`)?** Live chat streams constantly shift offsets; cursor pagination on `{ room: 1, createdAt: -1 }` stays $O(\log N)$ and powers both older history and reconnect catch-up.
-5. **Why embedded `members` instead of a `Membership` collection?** With a 100-member cap per room, embedding gives single-query authorization and member rendering; at thousands of members per room, a separate `Membership` collection avoids 16 MB BSON limits and write contention.
-6. **How does `dmKey` prevent duplicate DMs under race conditions?** Sorting `[idA, idB].sort().join(':')` with a unique sparse index turns concurrent `POST /api/rooms/dm` requests into an atomic DB constraint check (`E11000` falls back to returning the existing room).
-7. **How do live room invites work across multiple tabs?** `io.in('user:' + id).socketsJoin('room:' + roomId)` + `room:created` on `user:<id>` attaches all open tabs of the invited user immediately without reconnecting.
-8. **Why return `404` instead of `403` for private/DM non-members?** Returning `403` confirms a guessed ObjectId belongs to a real private room or DM; returning `404` prevents IDOR existence enumeration.
-9. **How would this scale beyond one server?** Add `@socket.io/redis-adapter` so `io.to('room:' + id)` and `socketsJoin`/`socketsLeave` reach sockets on other Node instances, and store presence counts in Redis.
+1. **Why persist before broadcast?** Guarantees canonical `_id` and `createdAt`, prevents phantom messages on refresh, and lets ack confirm durability.
+2. **How does presence handle multiple tabs?** `Map<userId, { count }>` broadcasts offline only when `count === 0`.
+3. **How is JWT shared between REST and sockets?** Same `verifyToken()` via `Authorization: Bearer` and `socket.handshake.auth.token`.
+4. **Why cursor pagination (`before` / `after` / `since`)?** Keeps queries $O(\log N)$ on `{ room: 1, createdAt: -1 }` and `{ room: 1, updatedAt: -1 }` without offset drift.
+5. **Soft delete vs. hard delete:** Soft delete clears `text` to `""` while preserving document structure, read receipts, and unread counts without leaking deleted content.
+6. **Atomic reaction updates vs. read-modify-write:** `$addToSet` / `$pull` execute under MongoDB document locks so concurrent reactions never overwrite each other.
+7. **Why presigned uploads beat proxying through Node:** File bytes flow directly between browser and S3/R2, keeping Node's event loop and memory free for real-time messaging.
+8. **Validating attachment keys to stop cross-room access:** Enforcing `key.startsWith('uploads/' + roomId + '/')` on `message:send` prevents a user from attaching another room's private object key.
+9. **Treating chat content as untrusted input to an LLM:** Delimiting transcripts in `<untrusted_chat_transcript>` tags and instructing the model to ignore embedded commands defends against prompt injection.
+10. **Scaling rooms & presence beyond one server:** Plug in `@socket.io/redis-adapter` for cross-node room broadcasts and Redis hashes for global presence.
