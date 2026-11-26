@@ -46,7 +46,7 @@ describe('Phase 2: Authentication, Persistence & Socket Auth', () => {
   describe('POST /api/auth/register & POST /api/auth/login', () => {
     it('registers a new user and returns JWT + user', async () => {
       const app = createApp();
-      const res = await registerUser(app, 'Alice_01', 'secret123');
+      const res = await registerUser(app, 'Alice_01', 'secret12345');
 
       expect(res.status).toBe(201);
       expect(typeof res.body.token).toBe('string');

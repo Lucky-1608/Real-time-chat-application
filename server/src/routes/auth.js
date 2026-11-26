@@ -1,12 +1,12 @@
 import { Router } from 'express';
-import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import env from '../config/env.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { registerSchema, loginSchema } from '../utils/validators.js';
+import { changePasswordSchema, registerSchema, loginSchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { requireAuth, signToken } from '../middleware/auth.js';
 import { addUserToGeneralRoom } from '../services/roomMigration.js';
+import { defaultPasswordService, getBackoffSeconds } from '../services/passwordService.js';
 import {
   createSession,
   listUserSessions,
@@ -16,7 +16,6 @@ import {
   rotateRefreshToken,
 } from '../services/sessionService.js';
 
-const BCRYPT_COST = 10;
 const REFRESH_COOKIE_NAME = 'refreshToken';
 
 function getCookieOptions() {
@@ -55,7 +54,7 @@ function disconnectSessionSockets(io, sessionIds, reason = 'Session revoked') {
   }
 }
 
-export function createAuthRouter({ rateLimiter } = {}) {
+export function createAuthRouter({ rateLimiter, passwordService = defaultPasswordService } = {}) {
   const router = Router();
 
   if (rateLimiter) {
@@ -63,6 +62,8 @@ export function createAuthRouter({ rateLimiter } = {}) {
     router.use('/login', rateLimiter);
   }
 
+  // Trade-off: In a public chat app usernames are visible in rooms, so registration
+  // returns 409 when a username is taken; timing is kept consistent via argon2id hashing only after check.
   router.post(
     '/register',
     asyncHandler(async (req, res) => {
@@ -79,7 +80,9 @@ export function createAuthRouter({ rateLimiter } = {}) {
         throw new AppError('Username is already taken', 409);
       }
 
-      const passwordHash = await bcrypt.hash(password, BCRYPT_COST);
+      await passwordService.ensureNotBreached(password);
+
+      const passwordHash = await passwordService.hashPassword(password);
       const user = await User.create({
         username,
         usernameLower,
@@ -117,11 +120,56 @@ export function createAuthRouter({ rateLimiter } = {}) {
       const usernameLower = username.toLowerCase();
 
       const user = await User.findOne({ usernameLower });
-      const passwordMatches = user ? await bcrypt.compare(password, user.passwordHash) : false;
 
-      // Return an identical error for unknown user and wrong password to prevent username enumeration.
-      if (!user || !passwordMatches) {
+      if (!user) {
+        // Constant-time defense: run a full argon2 verification against a dummy hash
+        // so response timing does not reveal whether a username exists.
+        await passwordService.verifyDummyPassword(password);
         throw new AppError('Invalid username or password', 401);
+      }
+
+      const now = Date.now();
+      // Exponential delay instead of a permanent hard lock: prevents an attacker from
+      // permanently locking out a victim (lockout-DoS) while slowing brute-force across IPs.
+      if (user.loginLockedUntil && user.loginLockedUntil.getTime() > now) {
+        await passwordService.verifyDummyPassword(password);
+        const retryAfterSec = Math.max(
+          1,
+          Math.ceil((user.loginLockedUntil.getTime() - now) / 1000)
+        );
+        res.set('Retry-After', String(retryAfterSec));
+        throw new AppError('Invalid username or password', 401);
+      }
+
+      const { valid, needsRehash } = await passwordService.verifyPassword(
+        password,
+        user.passwordHash
+      );
+
+      if (!valid) {
+        user.failedLoginAttempts = (user.failedLoginAttempts || 0) + 1;
+        const backoffSec = getBackoffSeconds(user.failedLoginAttempts);
+        if (backoffSec > 0) {
+          user.loginLockedUntil = new Date(now + backoffSec * 1000);
+          res.set('Retry-After', String(backoffSec));
+        }
+        await user.save();
+        throw new AppError('Invalid username or password', 401);
+      }
+
+      // Reset failure counters and transparently upgrade legacy bcrypt hashes to argon2id.
+      let dirty = false;
+      if (user.failedLoginAttempts > 0 || user.loginLockedUntil) {
+        user.failedLoginAttempts = 0;
+        user.loginLockedUntil = null;
+        dirty = true;
+      }
+      if (needsRehash) {
+        user.passwordHash = await passwordService.hashPassword(password);
+        dirty = true;
+      }
+      if (dirty) {
+        await user.save();
       }
 
       const serializedUser = user.toJSON();
@@ -138,6 +186,42 @@ export function createAuthRouter({ rateLimiter } = {}) {
         token,
         user: serializedUser,
       });
+    })
+  );
+
+  router.post(
+    '/change-password',
+    requireAuth,
+    asyncHandler(async (req, res) => {
+      const parsed = changePasswordSchema.safeParse(req.body);
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid password data', 400);
+      }
+
+      const { currentPassword, newPassword } = parsed.data;
+      const user = await User.findById(req.user.id);
+      if (!user) {
+        throw new AppError('Unauthorized', 401);
+      }
+
+      const { valid } = await passwordService.verifyPassword(currentPassword, user.passwordHash);
+      if (!valid) {
+        throw new AppError('Current password is incorrect', 401);
+      }
+
+      await passwordService.ensureNotBreached(newPassword);
+
+      user.passwordHash = await passwordService.hashPassword(newPassword);
+      user.failedLoginAttempts = 0;
+      user.loginLockedUntil = null;
+      await user.save();
+
+      const revokedIds = await revokeAllUserSessions(req.user.id, 'password_change', {
+        exceptSessionId: req.user.sid,
+      });
+      disconnectSessionSockets(req.app.locals.io, revokedIds, 'Password changed on another device');
+
+      res.status(200).json({ ok: true });
     })
   );
 

@@ -18,8 +18,16 @@ export const registerSchema = z.object({
     .regex(/^[a-zA-Z0-9_]+$/, 'Username may only contain letters, numbers, and underscores'),
   password: z
     .string()
-    .min(6, 'Password must be at least 6 characters')
+    .min(10, 'Password must be at least 10 characters')
     .max(128, 'Password must be at most 128 characters'),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z
+    .string()
+    .min(10, 'New password must be at least 10 characters')
+    .max(128, 'New password must be at most 128 characters'),
 });
 
 export const loginSchema = z.object({

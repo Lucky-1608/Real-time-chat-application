@@ -29,6 +29,13 @@ const envSchema = z
     REFRESH_IDLE_DAYS: z.coerce.number().int().min(1).max(30).default(7),
     REFRESH_GRACE_MS: z.coerce.number().int().min(0).max(60_000).default(10_000),
     COOKIE_SAME_SITE: z.enum(['lax', 'strict', 'none']).optional(),
+
+    // Password hashing (argon2id) & HIBP breached-password check
+    ARGON2_MEMORY_KB: z.coerce.number().int().min(16384).default(65536),
+    ARGON2_TIME_COST: z.coerce.number().int().min(1).default(3),
+    ARGON2_PARALLELISM: z.coerce.number().int().min(1).default(1),
+    PASSWORD_PEPPER: z.string().optional().default(''),
+    HIBP_ENABLED: z.enum(['true', 'false']).default('true'),
   })
   .superRefine((data, ctx) => {
     const anyS3Set = Boolean(

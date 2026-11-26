@@ -76,7 +76,9 @@ export async function getRoomsWithPreviews(userId) {
   // we would maintain a denormalized unread counter per (user, room) incremented on message:send.
   const unreadCounts = await Promise.all(
     rooms.map((room) => {
-      const myMember = room.members.find((m) => m.user._id.toString() === userId.toString());
+      const myMember = room.members.find(
+        (m) => m.user && (m.user._id || m.user).toString() === userId.toString()
+      );
       const since = myMember?.lastReadAt || myMember?.joinedAt || new Date(0);
       return Message.countDocuments({
         room: room._id,

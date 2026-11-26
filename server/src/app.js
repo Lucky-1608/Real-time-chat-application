@@ -12,6 +12,7 @@ import { createUsersRouter } from './routes/users.js';
 import { createUploadsRouter } from './routes/uploads.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
+import { defaultPasswordService } from './services/passwordService.js';
 
 /**
  * Builds the Express application without binding a port so it can be
@@ -24,6 +25,7 @@ export function createApp({
   summaryRateLimiter,
   storageService = defaultStorageService,
   summaryService = defaultSummaryService,
+  passwordService = defaultPasswordService,
 } = {}) {
   const app = express();
 
@@ -50,7 +52,10 @@ export function createApp({
 
   app.use(
     '/api/auth',
-    createAuthRouter({ rateLimiter: authRateLimiter ?? createAuthRateLimiter() })
+    createAuthRouter({
+      rateLimiter: authRateLimiter ?? createAuthRateLimiter(),
+      passwordService,
+    })
   );
   app.use(
     '/api/rooms',

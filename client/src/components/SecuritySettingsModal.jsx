@@ -19,6 +19,11 @@ export default function SecuritySettingsModal({ isOpen, onClose }) {
   const [confirmTarget, setConfirmTarget] = useState(null);
   const [busy, setBusy] = useState(false);
 
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [pwStatus, setPwStatus] = useState({ error: '', success: '' });
+  const [changingPw, setChangingPw] = useState(false);
+
   const loadSessions = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -38,8 +43,35 @@ export default function SecuritySettingsModal({ isOpen, onClose }) {
     } else {
       setConfirmTarget(null);
       setError('');
+      setCurrentPassword('');
+      setNewPassword('');
+      setPwStatus({ error: '', success: '' });
     }
   }, [isOpen, loadSessions]);
+
+  async function handleChangePassword(e) {
+    e.preventDefault();
+    if (newPassword.length < 10) {
+      setPwStatus({ error: 'New password must be at least 10 characters', success: '' });
+      return;
+    }
+    setChangingPw(true);
+    setPwStatus({ error: '', success: '' });
+    try {
+      await apiFetch('/api/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      setCurrentPassword('');
+      setNewPassword('');
+      setPwStatus({ error: '', success: 'Password updated and other devices signed out.' });
+      await loadSessions();
+    } catch (err) {
+      setPwStatus({ error: err.message || 'Failed to change password', success: '' });
+    } finally {
+      setChangingPw(false);
+    }
+  }
 
   async function handleRevokeOne(session) {
     setBusy(true);
@@ -177,6 +209,41 @@ export default function SecuritySettingsModal({ isOpen, onClose }) {
             ))}
           </ul>
         )}
+
+        <form className={styles.pwSection} onSubmit={handleChangePassword}>
+          <h3 className={styles.pwHeading}>Change password</h3>
+          <input
+            type="password"
+            className={styles.pwInput}
+            placeholder="Current password"
+            autoComplete="current-password"
+            value={currentPassword}
+            onChange={(e) => setCurrentPassword(e.target.value)}
+            required
+          />
+          <input
+            type="password"
+            className={styles.pwInput}
+            placeholder="New password (min 10 characters)"
+            autoComplete="new-password"
+            value={newPassword}
+            onChange={(e) => setNewPassword(e.target.value)}
+            required
+          />
+          {pwStatus.error && (
+            <div className={styles.error} role="alert">
+              {pwStatus.error}
+            </div>
+          )}
+          {pwStatus.success && (
+            <div className={styles.success} role="status">
+              {pwStatus.success}
+            </div>
+          )}
+          <button type="submit" className={styles.pwBtn} disabled={changingPw}>
+            {changingPw ? 'Updating…' : 'Update Password'}
+          </button>
+        </form>
       </div>
     </Modal>
   );

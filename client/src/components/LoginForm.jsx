@@ -25,8 +25,8 @@ export default function LoginForm() {
     if (!password) {
       return 'Password is required';
     }
-    if (isRegister && password.length < 6) {
-      return 'Password must be at least 6 characters';
+    if (isRegister && password.length < 10) {
+      return 'Password must be at least 10 characters';
     }
     return '';
   }
@@ -111,7 +111,7 @@ export default function LoginForm() {
               type="password"
               autoComplete={isRegister ? 'new-password' : 'current-password'}
               className={styles.input}
-              placeholder={isRegister ? 'At least 6 characters' : 'Enter your password'}
+              placeholder={isRegister ? 'At least 10 characters' : 'Enter your password'}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={submitting}
