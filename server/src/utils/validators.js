@@ -52,7 +52,11 @@ export const createRoomSchema = z.object({
     .string()
     .trim()
     .min(3, 'Room name must be at least 3 characters')
-    .max(30, 'Room name must be at most 30 characters'),
+    .max(30, 'Room name must be at most 30 characters')
+    .regex(
+      /^[a-zA-Z0-9 _-]+$/,
+      'Room name may only contain letters, numbers, spaces, hyphens, and underscores'
+    ),
   type: z.enum(['public', 'private']),
   memberIds: z.array(objectIdSchema).max(50).optional().default([]),
 });

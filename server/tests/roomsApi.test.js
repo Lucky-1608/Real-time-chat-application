@@ -275,4 +275,45 @@ describe('Sub-phase 6.3: Rooms & Users REST API', () => {
     expect(overCap.status).toBe(400);
     expect(overCap.body.error).toMatch(/Room limit reached/i);
   });
+
+  it('rejects unsafe characters in room names and resets unreadCount when lastReadAt advances', async () => {
+    const app = createApp();
+    const alice = await register(app, 'Alice');
+    const bob = await register(app, 'Bob');
+
+    const badName = await request(app)
+      .post('/api/rooms')
+      .set('Authorization', `Bearer ${alice.token}`)
+      .send({ name: '<script>alert(1)</script>', type: 'public' });
+    expect(badName.status).toBe(400);
+
+    const dmRes = await request(app)
+      .post('/api/rooms/dm')
+      .set('Authorization', `Bearer ${alice.token}`)
+      .send({ userId: bob.user.id });
+    const dmId = dmRes.body.room._id;
+
+    await new Promise((r) => setTimeout(r, 15));
+    await Message.create({
+      room: dmId,
+      sender: bob.user.id,
+      senderName: 'Bob',
+      text: 'Unread check',
+    });
+
+    const beforeRead = await request(app)
+      .get('/api/rooms')
+      .set('Authorization', `Bearer ${alice.token}`);
+    expect(beforeRead.body.rooms.find((r) => r._id === dmId).unreadCount).toBe(1);
+
+    await Room.updateOne(
+      { _id: dmId, 'members.user': alice.user.id },
+      { $set: { 'members.$.lastReadAt': new Date(Date.now() + 1000) } }
+    );
+
+    const afterRead = await request(app)
+      .get('/api/rooms')
+      .set('Authorization', `Bearer ${alice.token}`);
+    expect(afterRead.body.rooms.find((r) => r._id === dmId).unreadCount).toBe(0);
+  });
 });
