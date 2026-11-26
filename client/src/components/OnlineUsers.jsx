@@ -1,6 +1,6 @@
 import styles from './OnlineUsers.module.css';
 
-export default function OnlineUsers({ users, currentUserId, isOpen, onClose }) {
+export default function OnlineUsers({ users, currentUserId, isOpen, onClose, onStartDm }) {
   return (
     <aside
       className={`${styles.sidebar} ${isOpen ? styles.open : ''}`}
@@ -28,7 +28,21 @@ export default function OnlineUsers({ users, currentUserId, isOpen, onClose }) {
               <li key={u.userId} className={styles.item}>
                 <span className={styles.statusDot} aria-hidden="true" />
                 <span className={styles.username}>{u.username}</span>
-                {isSelf && <span className={styles.youTag}>you</span>}
+                {isSelf ? (
+                  <span className={styles.youTag}>you</span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.msgBtn}
+                    onClick={() => {
+                      onStartDm?.(u.userId);
+                      onClose?.();
+                    }}
+                    aria-label={`Message ${u.username}`}
+                  >
+                    Message
+                  </button>
+                )}
               </li>
             );
           })}

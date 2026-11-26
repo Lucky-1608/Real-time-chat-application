@@ -13,6 +13,7 @@ function isConsecutiveMessage(prev, curr) {
 }
 
 export default function MessageList({
+  roomId,
   messages,
   currentUserId,
   userDirectory,
@@ -55,20 +56,24 @@ export default function MessageList({
     }
     visibleUnreadIdsRef.current.clear();
 
-    if (toReport.length > 0 && typeof onMarkRead === 'function') {
-      onMarkRead(toReport);
+    if (toReport.length > 0 && roomId && typeof onMarkRead === 'function') {
+      onMarkRead(roomId, toReport);
     }
-  }, [onMarkRead]);
+  }, [roomId, onMarkRead]);
 
   const scheduleFlush = useCallback(() => {
     if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     flushTimerRef.current = setTimeout(flushVisibleReads, 100);
   }, [flushVisibleReads]);
 
+  useEffect(() => {
+    visibleUnreadIdsRef.current.clear();
+  }, [roomId]);
+
   // Observe visible unread messages from other users and emit read receipts when focused.
   useEffect(() => {
     const root = containerRef.current;
-    if (!root || typeof IntersectionObserver === 'undefined') return;
+    if (!root || !roomId || typeof IntersectionObserver === 'undefined') return;
 
     const unreadById = new Map();
     for (const m of messages) {
@@ -119,7 +124,7 @@ export default function MessageList({
       document.removeEventListener('visibilitychange', handleFocusOrVisibility);
       if (flushTimerRef.current) clearTimeout(flushTimerRef.current);
     };
-  }, [messages, currentUserId, containerRef, scheduleFlush, flushVisibleReads]);
+  }, [roomId, messages, currentUserId, containerRef, scheduleFlush, flushVisibleReads]);
 
   const setItemRef = useCallback((id, el) => {
     if (el) {

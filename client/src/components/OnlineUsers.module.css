@@ -77,6 +77,23 @@
   border-radius: 999px;
 }
 
+.msgBtn {
+  margin-left: auto;
+  background: var(--accent-soft);
+  border: none;
+  color: var(--accent);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.18rem 0.5rem;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.msgBtn:hover {
+  background: var(--accent);
+  color: #ffffff;
+}
+
 .empty {
   margin: 0.5rem 0;
   font-size: 0.85rem;

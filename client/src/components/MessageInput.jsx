@@ -3,7 +3,7 @@ import styles from './MessageInput.module.css';
 
 const MAX_LENGTH = 2000;
 
-export default function MessageInput({ onSend, onTyping, onStopTyping, disabled }) {
+export default function MessageInput({ onSend, onTyping, onStopTyping, disabled, roomLabel = '#General' }) {
   const [text, setText] = useState('');
 
   function submit() {
@@ -46,7 +46,7 @@ export default function MessageInput({ onSend, onTyping, onStopTyping, disabled 
         className={styles.textarea}
         rows={1}
         maxLength={MAX_LENGTH}
-        placeholder="Message #global (Enter to send, Shift+Enter for newline)"
+        placeholder={`Message ${roomLabel} (Enter to send, Shift+Enter for newline)`}
         value={text}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
