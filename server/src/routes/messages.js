@@ -5,6 +5,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { messagesQuerySchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { ensureGeneralRoom } from '../services/roomMigration.js';
+import { getRoomIfMember } from '../services/roomAccess.js';
 
 export function createMessagesRouter() {
   const router = Router();
@@ -19,12 +20,13 @@ export function createMessagesRouter() {
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid query parameters', 400);
       }
 
-      const { before, after, limit } = parsed.data;
-      const { room: generalRoom } = await ensureGeneralRoom();
+      const { before, after, limit, roomId } = parsed.data;
+      const targetRoomId = roomId || (await ensureGeneralRoom()).room._id.toString();
+      const { room } = await getRoomIfMember(targetRoomId, req.user.id);
 
       if (after) {
         const docs = await Message.find({
-          room: generalRoom._id,
+          room: room._id,
           createdAt: { $gt: new Date(after) },
         })
           .sort({ createdAt: 1 })
@@ -37,7 +39,7 @@ export function createMessagesRouter() {
         });
       }
 
-      const filter = { room: generalRoom._id };
+      const filter = { room: room._id };
       if (before) {
         filter.createdAt = { $lt: new Date(before) };
       }

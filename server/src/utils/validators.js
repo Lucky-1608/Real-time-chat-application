@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import mongoose from 'mongoose';
+
+export const objectIdSchema = z
+  .string()
+  .refine((val) => mongoose.isValidObjectId(val), { message: 'Invalid room ID' });
 
 export const registerSchema = z.object({
   username: z
@@ -22,7 +27,7 @@ export const messagesQuerySchema = z.object({
   before: z.string().datetime({ message: 'Invalid before cursor' }).optional(),
   after: z.string().datetime({ message: 'Invalid after cursor' }).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
-  roomId: z.string().trim().min(1).max(64).default('global'),
+  roomId: objectIdSchema.optional(),
 });
 
 export const messageSendSchema = z.object({
@@ -31,7 +36,7 @@ export const messageSendSchema = z.object({
     .trim()
     .min(1, 'Message cannot be empty')
     .max(2000, 'Message cannot exceed 2000 characters'),
-  roomId: z.string().trim().min(1).max(64).default('global'),
+  roomId: objectIdSchema.optional(),
 });
 
 export const messageReadSchema = z.object({
@@ -39,5 +44,5 @@ export const messageReadSchema = z.object({
     .array(z.string().regex(/^[0-9a-fA-F]{24}$/, 'Invalid message ID'))
     .min(1)
     .max(100),
-  roomId: z.string().trim().min(1).max(64).default('global'),
+  roomId: objectIdSchema.optional(),
 });
