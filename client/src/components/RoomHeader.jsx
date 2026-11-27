@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { changeLanguage, formatLocalizedNumber } from '../i18n.js';
 import styles from './RoomHeader.module.css';
 
 export default function RoomHeader({
@@ -21,6 +23,7 @@ export default function RoomHeader({
   onOpenAdmin,
   onLogout,
 }) {
+  const { t, i18n } = useTranslation();
   const [membersOpen, setMembersOpen] = useState(false);
 
   const isDm = room?.type === 'dm';
@@ -60,7 +63,7 @@ export default function RoomHeader({
                   onClick={() => setMembersOpen((prev) => !prev)}
                   aria-expanded={membersOpen}
                 >
-                  {room.members?.length || 0} members
+                  {t('membersCount', { count: formatLocalizedNumber(room.members?.length || 0, i18n.language) })}
                 </button>
               ) : (
                 <span>Signed in as {currentUser?.username}</span>
@@ -132,13 +135,24 @@ export default function RoomHeader({
           Online ({onlineCount})
         </button>
 
+        <select
+          aria-label={t('language')}
+          className={styles.actionBtn}
+          value={i18n.language}
+          onChange={(e) => changeLanguage(e.target.value)}
+        >
+          <option value="en">EN</option>
+          <option value="hi">HI</option>
+          <option value="pseudo">PSEUDO</option>
+        </select>
+
         <button
           type="button"
           className={styles.actionBtn}
           onClick={onOpenSecurity}
           title="Manage active sessions"
         >
-          Security
+          {t('security')}
         </button>
 
         {currentUser?.globalRole === 'admin' && (
@@ -148,12 +162,12 @@ export default function RoomHeader({
             onClick={onOpenAdmin}
             title="Admin Dashboard"
           >
-            Admin
+            {t('admin')}
           </button>
         )}
 
         <button type="button" className={styles.logoutBtn} onClick={onLogout}>
-          Sign out
+          {t('signOut')}
         </button>
       </div>
 
