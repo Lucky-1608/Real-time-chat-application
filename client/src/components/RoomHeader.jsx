@@ -22,6 +22,7 @@ export default function RoomHeader({
   onOpenSecurity,
   onOpenAdmin,
   onOpenTour,
+  onOpenWebhooks,
   onLogout,
 }) {
   const { t, i18n } = useTranslation();
@@ -114,6 +115,17 @@ export default function RoomHeader({
             onClick={() => onLeaveRoom(room._id)}
           >
             Leave
+          </button>
+        )}
+
+        {room && !isDm && isOwner && onOpenWebhooks && (
+          <button
+            type="button"
+            className={styles.actionBtn}
+            onClick={onOpenWebhooks}
+            title="Manage incoming webhooks"
+          >
+            Webhooks
           </button>
         )}
 

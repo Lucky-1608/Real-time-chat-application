@@ -19,6 +19,7 @@ import { createReportsRouter } from './routes/reports.js';
 import { createAccountRouter } from './routes/account.js';
 import { createWorkspacesRouter } from './routes/workspaces.js';
 import { createBotsRouter } from './routes/bots.js';
+import { createWebhooksRouter } from './routes/webhooks.js';
 import { ALLOWED_GIF_HOSTS } from './services/providers/gifProvider.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
@@ -78,6 +79,15 @@ export function createApp({
       origin: env.CLIENT_URL,
       credentials: true,
       allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With', 'X-Workspace-Id'],
+    })
+  );
+  app.use(
+    ['/api/v1/hooks', '/api/hooks'],
+    express.json({
+      limit: '64kb',
+      verify: (req, _res, buf) => {
+        req.rawBody = buf;
+      },
     })
   );
   // Cap JSON body size early to mitigate payload-flooding DoS attacks.
@@ -169,6 +179,7 @@ export function createApp({
   const messagesRouter = createMessagesRouter();
   const workspacesRouter = createWorkspacesRouter({ rateLimiter: sharedApiLimiter });
   const botsRouter = createBotsRouter({ rateLimiter: sharedApiLimiter });
+  const webhooksRouter = createWebhooksRouter({ rateLimiter: sharedApiLimiter });
 
   const openApiDoc = generateOpenApiDocument();
   const docsMiddlewares = env.NODE_ENV === 'production' ? [requireAuth, requireAdmin] : [];
@@ -185,6 +196,7 @@ export function createApp({
   app.use('/api/v1/account', accountRouter);
   app.use('/api/v1/messages', messagesRouter);
   app.use('/api/v1', botsRouter);
+  app.use('/api/v1', webhooksRouter);
 
   // Legacy /api/* aliases with Deprecation header for one release
   const deprecateLegacyApi = (_req, res, next) => {
@@ -202,6 +214,7 @@ export function createApp({
   app.use('/api/account', deprecateLegacyApi, accountRouter);
   app.use('/api/messages', deprecateLegacyApi, messagesRouter);
   app.use('/api', deprecateLegacyApi, botsRouter);
+  app.use('/api', deprecateLegacyApi, webhooksRouter);
 
   if (typeof registerRoutes === 'function') {
     registerRoutes(app);

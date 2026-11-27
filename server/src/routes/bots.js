@@ -58,9 +58,9 @@ export function createBotsRouter({ rateLimiter } = {}) {
     asyncHandler(async (req, res) => {
       let room = null;
       if (req.query.roomId && mongoose.isValidObjectId(String(req.query.roomId))) {
-        const access = await getRoomIfMember(String(req.query.roomId), req.user.id, req.workspaceId).catch(
-          () => null
-        );
+        const access = await getRoomIfMember(String(req.query.roomId), req.user.id, {
+          workspaceId: req.workspaceId,
+        }).catch(() => null);
         room = access?.room || null;
       }
       const commands = getCommandsForUser(req.user, room);
@@ -205,7 +205,7 @@ export function createBotsRouter({ rateLimiter } = {}) {
     resolveWorkspace,
     asyncHandler(async (req, res) => {
       const roomId = parseRoomId(req.params.id);
-      const { room } = await getRoomIfMember(roomId, req.user.id, req.workspaceId);
+      const { room } = await getRoomIfMember(roomId, req.user.id, { workspaceId: req.workspaceId });
       assertCan(req.user, 'room.settings', { room });
 
       const parsed = addBotToRoomSchema.safeParse(req.body || {});

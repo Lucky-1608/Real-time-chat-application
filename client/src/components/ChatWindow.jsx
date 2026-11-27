@@ -16,6 +16,7 @@ import InviteMembersModal from './InviteMembersModal.jsx';
 import SecuritySettingsModal from './SecuritySettingsModal.jsx';
 import AdminDashboardModal from './AdminDashboardModal.jsx';
 import OnboardingTour from './OnboardingTour.jsx';
+import WebhooksModal from './WebhooksModal.jsx';
 import styles from './ChatWindow.module.css';
 
 export default function ChatWindow() {
@@ -148,6 +149,7 @@ export default function ChatWindow() {
             onOpenSecurity={() => setActiveModal('security-settings')}
             onOpenAdmin={() => setActiveModal('admin-dashboard')}
             onOpenTour={reopenTour}
+            onOpenWebhooks={() => setActiveModal('webhooks')}
             onLogout={logout}
           />
 
@@ -256,6 +258,11 @@ export default function ChatWindow() {
       <SecuritySettingsModal
         isOpen={activeModal === 'security-settings'}
         onClose={() => setActiveModal(null)}
+      />
+      <WebhooksModal
+        isOpen={activeModal === 'webhooks'}
+        onClose={() => setActiveModal(null)}
+        room={activeRoom}
       />
       <OnboardingTour
         isOpen={tourOpen}
