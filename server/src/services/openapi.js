@@ -329,6 +329,14 @@ export function generateOpenApiDocument() {
     responses: createdResp,
   });
 
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/search/semantic',
+    tags: ['Search'],
+    security: [{ bearerAuth: [] }],
+    responses: okResp,
+  });
+
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
     openapi: '3.0.3',

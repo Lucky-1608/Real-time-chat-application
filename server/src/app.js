@@ -20,6 +20,7 @@ import { createAccountRouter } from './routes/account.js';
 import { createWorkspacesRouter } from './routes/workspaces.js';
 import { createBotsRouter } from './routes/bots.js';
 import { createWebhooksRouter } from './routes/webhooks.js';
+import { createSearchRouter } from './routes/search.js';
 import { ALLOWED_GIF_HOSTS } from './services/providers/gifProvider.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
@@ -180,6 +181,7 @@ export function createApp({
   const workspacesRouter = createWorkspacesRouter({ rateLimiter: sharedApiLimiter });
   const botsRouter = createBotsRouter({ rateLimiter: sharedApiLimiter });
   const webhooksRouter = createWebhooksRouter({ rateLimiter: sharedApiLimiter });
+  const searchRouter = createSearchRouter({ rateLimiter: sharedApiLimiter });
 
   const openApiDoc = generateOpenApiDocument();
   const docsMiddlewares = env.NODE_ENV === 'production' ? [requireAuth, requireAdmin] : [];
@@ -197,6 +199,7 @@ export function createApp({
   app.use('/api/v1/messages', messagesRouter);
   app.use('/api/v1', botsRouter);
   app.use('/api/v1', webhooksRouter);
+  app.use('/api/v1/search', searchRouter);
 
   // Legacy /api/* aliases with Deprecation header for one release
   const deprecateLegacyApi = (_req, res, next) => {
@@ -215,6 +218,7 @@ export function createApp({
   app.use('/api/messages', deprecateLegacyApi, messagesRouter);
   app.use('/api', deprecateLegacyApi, botsRouter);
   app.use('/api', deprecateLegacyApi, webhooksRouter);
+  app.use('/api/search', deprecateLegacyApi, searchRouter);
 
   if (typeof registerRoutes === 'function') {
     registerRoutes(app);

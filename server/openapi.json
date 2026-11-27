@@ -1277,6 +1277,23 @@
           }
         }
       }
+    },
+    "/api/v1/search/semantic": {
+      "get": {
+        "tags": [
+          "Search"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   }
 }

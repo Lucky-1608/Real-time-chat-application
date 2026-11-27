@@ -14,6 +14,7 @@ export const FLAG_NAMES = [
   'bots',
   'incomingWebhooks',
   'outgoingWebhooks',
+  'semanticSearch',
 ];
 
 const CACHE_TTL_MS = 5000;
@@ -50,6 +51,10 @@ function getEnvDefaults() {
       env.NODE_ENV === 'production'
         ? process.env.FLAG_OUTGOING_WEBHOOKS === 'true'
         : process.env.FLAG_OUTGOING_WEBHOOKS !== 'false',
+    semanticSearch:
+      env.NODE_ENV === 'production'
+        ? process.env.FLAG_SEMANTIC_SEARCH === 'true'
+        : process.env.FLAG_SEMANTIC_SEARCH !== 'false',
   };
 }
 
