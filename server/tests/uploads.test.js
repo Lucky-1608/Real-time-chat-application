@@ -205,7 +205,8 @@ describe('Sub-phase 7.3: Presigned S3/R2 Uploads & Attachment Security', () => {
     // Mark attachment clean (simulating scan worker) and verify history returns presigned GET URL
     await Message.updateOne(
       { _id: broadcasted._id, 'attachments.key': presignA.body.key },
-      { $set: { 'attachments.$.scanStatus': 'clean' } }
+      { $set: { 'attachments.$.scanStatus': 'clean' } },
+      { bypassTenantScope: true }
     );
 
     const historyRes = await request(app)

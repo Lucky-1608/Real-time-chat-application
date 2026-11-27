@@ -8,6 +8,7 @@
     "dev": "node --watch src/index.js",
     "start": "node src/index.js",
     "migrate:rooms": "node src/scripts/migrateRooms.js",
+    "migrate:workspaces": "node src/scripts/migrateWorkspaces.js",
     "seed": "node src/scripts/seed.js",
     "openapi:generate": "node src/scripts/generateOpenapi.js",
     "openapi:check": "node src/scripts/generateOpenapi.js --check",

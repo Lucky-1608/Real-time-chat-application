@@ -110,7 +110,7 @@ describe('Sub-phase 8.6: Audit Log & Flood Control', () => {
     const roomId = roomRes.body.room._id;
 
     // Enable 10s slow mode on the room
-    await Room.updateOne({ _id: roomId }, { $set: { slowModeSeconds: 10 } });
+    await Room.updateOne({ _id: roomId }, { $set: { slowModeSeconds: 10 } }, { bypassTenantScope: true });
 
     const sock = createClient(url, {
       transports: ['websocket'],
@@ -131,7 +131,7 @@ describe('Sub-phase 8.6: Audit Log & Flood Control', () => {
     expect(secondSlow.error).toMatch(/slow mode/i);
 
     // Disable slow mode and test duplicate-message spam (3 identical messages in window)
-    await Room.updateOne({ _id: roomId }, { $set: { slowModeSeconds: 0 } });
+    await Room.updateOne({ _id: roomId }, { $set: { slowModeSeconds: 0 } }, { bypassTenantScope: true });
     for (let i = 0; i < 3; i++) {
       const ok = await new Promise((resolve) => {
         sock.emit('message:send', { roomId, text: 'Buy cheap coins now!' }, resolve);
@@ -162,7 +162,11 @@ describe('Sub-phase 8.6: Audit Log & Flood Control', () => {
       .send({ userId: bob.body.user.id });
     expect(dmBlocked.status).toBe(403);
 
-    const general = await Room.findOne({ nameLower: 'general', type: 'public' }).lean();
+    const general = await Room.findOne(
+      { nameLower: 'general', type: 'public' },
+      null,
+      { bypassTenantScope: true }
+    ).lean();
     const uploadBlocked = await request(app)
       .post('/api/uploads/presign')
       .set('Authorization', `Bearer ${alice.body.token}`)

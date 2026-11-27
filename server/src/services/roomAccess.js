@@ -18,9 +18,15 @@ export function parseRoomId(roomId) {
  * Returns { room, member } if the user belongs to the room (and is owner when required).
  * Returns 404 for private/DM non-members so room existence is never leaked via IDOR.
  */
-export async function getRoomIfMember(roomId, userId, { requireOwner = false } = {}) {
+export async function getRoomIfMember(
+  roomId,
+  userId,
+  { requireOwner = false, workspaceId = null } = {}
+) {
   const validId = parseRoomId(roomId);
-  const room = await Room.findById(validId);
+  const room = workspaceId
+    ? await Room.findOne({ _id: validId, workspace: workspaceId })
+    : await Room.findOne({ _id: validId }, null, { bypassTenantScope: true });
 
   if (!room) {
     throw new AppError('Room not found', 404);

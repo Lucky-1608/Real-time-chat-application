@@ -114,7 +114,7 @@ export function createScanWorker({
     await storageService.deleteObject(att.key).catch(() => {});
 
     await Message.updateOne(
-      { _id: msg._id, 'attachments.key': att.key },
+      { _id: msg._id, workspace: msg.workspace, 'attachments.key': att.key },
       {
         $set: {
           'attachments.$.scanStatus': 'rejected',
@@ -172,7 +172,7 @@ export function createScanWorker({
       {
         $set: { 'attachments.$.scanClaimedAt': now },
       },
-      { new: true }
+      { new: true, bypassTenantScope: true }
     );
 
     if (!msg) return false;
@@ -221,7 +221,7 @@ export function createScanWorker({
       await storageService.deleteObject(att.key).catch(() => {});
 
       await Message.updateOne(
-        { _id: msg._id, 'attachments.key': att.key },
+        { _id: msg._id, workspace: msg.workspace, 'attachments.key': att.key },
         {
           $set: {
             'attachments.$.key': finalKey,
@@ -258,7 +258,12 @@ export function createScanWorker({
     } catch (err) {
       // Release the claim lease on transient errors so another poll can retry.
       await Message.updateOne(
-        { _id: msg._id, 'attachments.key': att.key, 'attachments.scanStatus': 'pending' },
+        {
+          _id: msg._id,
+          workspace: msg.workspace,
+          'attachments.key': att.key,
+          'attachments.scanStatus': 'pending',
+        },
         { $set: { 'attachments.$.scanClaimedAt': null } }
       ).catch(() => {});
       console.error('[scanWorker] Error processing attachment:', err);

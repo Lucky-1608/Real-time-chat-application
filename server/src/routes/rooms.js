@@ -8,6 +8,7 @@ import InviteLink from '../models/InviteLink.js';
 import Draft from '../models/Draft.js';
 import ScheduledMessage from '../models/ScheduledMessage.js';
 import { requireAuth } from '../middleware/auth.js';
+import { resolveWorkspace } from '../middleware/workspace.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import {
@@ -55,7 +56,7 @@ export function createRoomsRouter({
 } = {}) {
   const router = Router();
 
-  router.use(requireAuth);
+  router.use(requireAuth, resolveWorkspace);
   if (rateLimiter) {
     router.use(rateLimiter);
   }
@@ -64,7 +65,7 @@ export function createRoomsRouter({
   router.get(
     '/',
     asyncHandler(async (req, res) => {
-      const rooms = await getRoomsWithPreviews(req.user.id);
+      const rooms = await getRoomsWithPreviews(req.user.id, req.workspaceId);
       res.status(200).json({ rooms });
     })
   );
@@ -81,6 +82,7 @@ export function createRoomsRouter({
       const { q, page, limit } = parsed.data;
       const userObjectId = new mongoose.Types.ObjectId(req.user.id);
       const filter = {
+        workspace: req.workspaceId,
         type: 'public',
         'members.user': { $ne: userObjectId },
       };
@@ -122,14 +124,21 @@ export function createRoomsRouter({
       const { name, type, memberIds } = parsed.data;
       const userId = req.user.id;
 
-      const myRoomCount = await Room.countDocuments({ 'members.user': userId });
+      const myRoomCount = await Room.countDocuments({
+        workspace: req.workspaceId,
+        'members.user': userId,
+      });
       if (myRoomCount >= MAX_ROOMS_PER_USER) {
         throw new AppError(`Room limit reached (max ${MAX_ROOMS_PER_USER} rooms per user)`, 400);
       }
 
       const nameLower = name.toLowerCase();
       if (type === 'public') {
-        const existing = await Room.findOne({ type: 'public', nameLower }).lean();
+        const existing = await Room.findOne({
+          workspace: req.workspaceId,
+          type: 'public',
+          nameLower,
+        }).lean();
         if (existing) {
           throw new AppError('A public room with that name already exists', 409);
         }
@@ -159,13 +168,14 @@ export function createRoomsRouter({
       ];
 
       const created = await Room.create({
+        workspace: req.workspaceId,
         name,
         type,
         createdBy: userId,
         members,
       });
 
-      const populated = await Room.findById(created._id)
+      const populated = await Room.findOne({ _id: created._id, workspace: req.workspaceId })
         .populate('members.user', 'username')
         .lean();
 
@@ -218,7 +228,7 @@ export function createRoomsRouter({
       }
 
       const dmKey = makeDmKey(myUserId, targetUserId);
-      let existing = await Room.findOne({ type: 'dm', dmKey })
+      let existing = await Room.findOne({ workspace: req.workspaceId, type: 'dm', dmKey })
         .populate('members.user', 'username')
         .lean();
 
@@ -228,7 +238,10 @@ export function createRoomsRouter({
 
       floodControl.assertNewAccountAllowed(myUser?.createdAt, 'starting direct messages');
 
-      const myRoomCount = await Room.countDocuments({ 'members.user': myUserId });
+      const myRoomCount = await Room.countDocuments({
+        workspace: req.workspaceId,
+        'members.user': myUserId,
+      });
       if (myRoomCount >= MAX_ROOMS_PER_USER) {
         throw new AppError(`Room limit reached (max ${MAX_ROOMS_PER_USER} rooms per user)`, 400);
       }
@@ -236,6 +249,7 @@ export function createRoomsRouter({
       const now = new Date();
       try {
         const created = await Room.create({
+          workspace: req.workspaceId,
           type: 'dm',
           dmKey,
           createdBy: myUserId,
@@ -244,7 +258,7 @@ export function createRoomsRouter({
             { user: targetUserId, role: 'member', joinedAt: now, lastReadAt: now },
           ],
         });
-        const populated = await Room.findById(created._id)
+        const populated = await Room.findOne({ _id: created._id, workspace: req.workspaceId })
           .populate('members.user', 'username')
           .lean();
 
@@ -262,7 +276,7 @@ export function createRoomsRouter({
         return res.status(201).json({ room: serializeRoom(populated, myUserId), created: true });
       } catch (err) {
         if (err.code === 11000) {
-          existing = await Room.findOne({ type: 'dm', dmKey })
+          existing = await Room.findOne({ workspace: req.workspaceId, type: 'dm', dmKey })
             .populate('members.user', 'username')
             .lean();
           if (existing) {
@@ -281,7 +295,7 @@ export function createRoomsRouter({
     '/:id/join',
     asyncHandler(async (req, res) => {
       const roomId = parseRoomId(req.params.id);
-      const room = await Room.findById(roomId);
+      const room = await Room.findOne({ _id: roomId, workspace: req.workspaceId });
 
       // Return 404 for private/DM rooms so non-members cannot discover their existence.
       if (!room || room.type !== 'public') {
@@ -296,7 +310,10 @@ export function createRoomsRouter({
       const alreadyMember = room.members.some((m) => m.user.toString() === userId);
 
       if (!alreadyMember) {
-        const myRoomCount = await Room.countDocuments({ 'members.user': userId });
+        const myRoomCount = await Room.countDocuments({
+          workspace: req.workspaceId,
+          'members.user': userId,
+        });
         if (myRoomCount >= MAX_ROOMS_PER_USER) {
           throw new AppError(`Room limit reached (max ${MAX_ROOMS_PER_USER} rooms per user)`, 400);
         }
@@ -305,6 +322,7 @@ export function createRoomsRouter({
         const updated = await Room.findOneAndUpdate(
           {
             _id: room._id,
+            workspace: req.workspaceId,
             'members.user': { $ne: userId },
             $expr: {
               $lt: [{ $size: '$members' }, { $ifNull: ['$maxMembers', MAX_MEMBERS_PER_ROOM] }],
@@ -322,7 +340,7 @@ export function createRoomsRouter({
         }
       }
 
-      const populated = await Room.findById(room._id)
+      const populated = await Room.findOne({ _id: room._id, workspace: req.workspaceId })
         .populate('members.user', 'username')
         .lean();
 
@@ -351,7 +369,9 @@ export function createRoomsRouter({
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid member list', 400);
       }
 
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       if (room.type !== 'private') {
         throw new AppError('Only private rooms support invitations', 400);
       }
@@ -382,7 +402,7 @@ export function createRoomsRouter({
         await room.save();
       }
 
-      const populated = await Room.findById(room._id)
+      const populated = await Room.findOne({ _id: room._id, workspace: req.workspaceId })
         .populate('members.user', 'username')
         .lean();
 
@@ -425,7 +445,7 @@ export function createRoomsRouter({
       }
 
       await Room.updateOne(
-        { _id: room._id },
+        { _id: room._id, workspace: req.workspaceId },
         { $pull: { members: { user: req.user.id } } }
       );
 
@@ -450,7 +470,9 @@ export function createRoomsRouter({
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid room settings', 400);
       }
 
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       if (room.type === 'dm') {
         throw new AppError('Direct messages cannot be modified', 400);
       }
@@ -492,7 +514,7 @@ export function createRoomsRouter({
       }
 
       await room.save();
-      const populated = await Room.findById(room._id).populate('members.user', 'username').lean();
+      const populated = await Room.findOne({ _id: room._id, workspace: req.workspaceId }).populate('members.user', 'username').lean();
       const serialized = serializeRoom(populated, req.user.id);
 
       const io = req.app.locals.io;
@@ -520,7 +542,9 @@ export function createRoomsRouter({
       if (!parsed.success) {
         throw new AppError('Invalid mute payload', 400);
       }
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       await Room.updateOne(
         { _id: room._id, 'members.user': req.user.id },
         { $set: { 'members.$.muted': parsed.data.muted } }
@@ -538,7 +562,9 @@ export function createRoomsRouter({
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid invite options', 400);
       }
 
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       if (room.type === 'dm') {
         throw new AppError('Direct messages do not support invite links', 400);
       }
@@ -586,7 +612,9 @@ export function createRoomsRouter({
   router.get(
     '/:id/invites',
     asyncHandler(async (req, res) => {
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       assertCan(req.user, 'invite.manage', { room });
 
       const invites = await InviteLink.find(
@@ -604,7 +632,9 @@ export function createRoomsRouter({
   router.delete(
     '/:id/invites/:inviteId',
     asyncHandler(async (req, res) => {
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       assertCan(req.user, 'invite.manage', { room });
 
       const inviteId = parseRoomId(req.params.inviteId);
@@ -660,7 +690,7 @@ export function createRoomsRouter({
         throw new AppError('Invite link is invalid, expired, or has reached its maximum uses', 400);
       }
 
-      const room = await Room.findById(invite.room);
+      const room = await Room.findOne({ _id: invite.room, workspace: req.workspaceId });
       if (!room || room.allowInviteLinks === false) {
         await InviteLink.updateOne({ _id: invite._id }, { $inc: { uses: -1 } });
         throw new AppError('Invite links are not enabled for this room', 403);
@@ -677,6 +707,7 @@ export function createRoomsRouter({
         const updated = await Room.findOneAndUpdate(
           {
             _id: room._id,
+            workspace: req.workspaceId,
             'members.user': { $ne: userId },
             $expr: {
               $lt: [{ $size: '$members' }, { $ifNull: ['$maxMembers', MAX_MEMBERS_PER_ROOM] }],
@@ -695,7 +726,7 @@ export function createRoomsRouter({
         }
       }
 
-      const populated = await Room.findById(room._id)
+      const populated = await Room.findOne({ _id: room._id, workspace: req.workspaceId })
         .populate('members.user', 'username')
         .lean();
       const serialized = serializeRoom(populated, userId);
@@ -770,7 +801,7 @@ export function createRoomsRouter({
         },
       });
 
-      const populated = await Room.findById(room._id).populate('members.user', 'username').lean();
+      const populated = await Room.findOne({ _id: room._id, workspace: req.workspaceId }).populate('members.user', 'username').lean();
       const serialized = serializeRoom(populated, req.user.id);
       const roomIdStr = room._id.toString();
 
@@ -793,7 +824,9 @@ export function createRoomsRouter({
     '/:id/members/:userId',
     asyncHandler(async (req, res) => {
       const targetUserId = parseRoomId(req.params.userId);
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
 
       const targetMember = room.members.find((m) => m.user.toString() === targetUserId);
       if (!targetMember) {
@@ -836,7 +869,9 @@ export function createRoomsRouter({
   router.delete(
     '/:id',
     asyncHandler(async (req, res) => {
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       assertCan(req.user, 'room.delete', { room });
       if (room.type === 'dm' || room.nameLower === 'general') {
         throw new AppError('This room cannot be deleted', 400);
@@ -850,8 +885,8 @@ export function createRoomsRouter({
       }
 
       await Promise.all([
-        Message.deleteMany({ room: room._id }),
-        Room.deleteOne({ _id: room._id }),
+        Message.deleteMany({ workspace: room.workspace, room: room._id }),
+        Room.deleteOne({ _id: room._id, workspace: room.workspace }),
       ]);
 
       res.status(200).json({ ok: true, roomId: roomIdStr });
@@ -871,6 +906,7 @@ export function createRoomsRouter({
       const result = await getRoomMessages({
         roomId: req.params.id,
         userId: req.user.id,
+        workspaceId: req.workspaceId,
         before,
         after,
         around,
@@ -886,9 +922,12 @@ export function createRoomsRouter({
   router.get(
     '/:id/pins',
     asyncHandler(async (req, res) => {
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       const docs = await Message.find({
         _id: { $in: room.pinnedMessages || [] },
+        workspace: room.workspace,
         room: room._id,
         deletedAt: null,
       })
@@ -904,10 +943,17 @@ export function createRoomsRouter({
     '/:id/pins/:messageId',
     asyncHandler(async (req, res) => {
       const messageId = parseRoomId(req.params.messageId);
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       assertCan(req.user, 'message.pin', { room });
 
-      const msg = await Message.findOne({ _id: messageId, room: room._id, deletedAt: null }).lean();
+      const msg = await Message.findOne({
+        _id: messageId,
+        workspace: room.workspace,
+        room: room._id,
+        deletedAt: null,
+      }).lean();
       if (!msg) {
         throw new AppError('Message not found', 404);
       }
@@ -940,11 +986,19 @@ export function createRoomsRouter({
     '/:id/pins/:messageId',
     asyncHandler(async (req, res) => {
       const messageId = parseRoomId(req.params.messageId);
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       assertCan(req.user, 'message.pin', { room });
 
-      await Room.updateOne({ _id: room._id }, { $pull: { pinnedMessages: messageId } });
-      const updated = await Room.findById(room._id, { pinnedMessages: 1 }).lean();
+      await Room.updateOne(
+        { _id: room._id, workspace: room.workspace },
+        { $pull: { pinnedMessages: messageId } }
+      );
+      const updated = await Room.findOne(
+        { _id: room._id, workspace: room.workspace },
+        { pinnedMessages: 1 }
+      ).lean();
       const pinnedIds = (updated?.pinnedMessages || []).map((id) => id.toString());
       const roomIdStr = room._id.toString();
 
@@ -969,7 +1023,9 @@ export function createRoomsRouter({
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid draft', 400);
       }
 
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       const text = parsed.data.text;
 
       if (!text) {
@@ -1001,16 +1057,13 @@ export function createRoomsRouter({
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid notification level', 400);
       }
 
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       const level = parsed.data.level;
       await Room.updateOne(
-        { _id: room._id, 'members.user': req.user.id },
-        {
-          $set: {
-            'members.$.notificationLevel': level,
-            'members.$.muted': level === 'muted',
-          },
-        }
+        { _id: room._id, workspace: room.workspace, 'members.user': req.user.id },
+        { $set: { 'members.$.notificationLevel': level, 'members.$.muted': level === 'muted' } }
       );
 
       res.status(200).json({ ok: true, roomId: room._id.toString(), level });
@@ -1035,7 +1088,9 @@ export function createRoomsRouter({
         throw new AppError('sendAt must be between 1 minute and 30 days from now', 400);
       }
 
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       assertCan(req.user, 'message.send', { room });
 
       const pendingCount = await ScheduledMessage.countDocuments({
@@ -1062,7 +1117,9 @@ export function createRoomsRouter({
   router.get(
     '/:id/scheduled',
     asyncHandler(async (req, res) => {
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       const scheduled = await ScheduledMessage.find({
         room: room._id,
         sender: req.user.id,
@@ -1079,7 +1136,9 @@ export function createRoomsRouter({
   router.delete(
     '/:id/scheduled/:scheduledId',
     asyncHandler(async (req, res) => {
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       const scheduledId = parseRoomId(req.params.scheduledId);
 
       const updated = await ScheduledMessage.findOneAndUpdate(
@@ -1105,7 +1164,9 @@ export function createRoomsRouter({
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid poll', 400);
       }
 
-      const { room } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       assertCan(req.user, 'message.send', { room });
 
       const { question, options, multiple, anonymous, closesAt } = parsed.data;
@@ -1115,6 +1176,7 @@ export function createRoomsRouter({
           : null;
 
       const doc = await Message.create({
+        workspace: room.workspace,
         room: room._id,
         sender: req.user.id,
         senderName: req.user.username,
@@ -1152,6 +1214,7 @@ export function createRoomsRouter({
       const result = await getRoomChanges({
         roomId: req.params.id,
         userId: req.user.id,
+        workspaceId: req.workspaceId,
         since: parsed.data.since,
         storageService,
       });
@@ -1172,13 +1235,15 @@ export function createRoomsRouter({
       }
 
       const { sinceMessageId, force } = parsed.data;
-      const { room, member } = await getRoomIfMember(req.params.id, req.user.id);
+      const { room, member } = await getRoomIfMember(req.params.id, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       assertCan(req.user, 'room.summary', { room });
 
       let sinceDate = member.lastReadAt || member.joinedAt || new Date(0);
       if (sinceMessageId) {
         const anchor = await Message.findOne(
-          { _id: sinceMessageId, room: room._id },
+          { _id: sinceMessageId, workspace: room.workspace, room: room._id },
           { createdAt: 1 }
         ).lean();
         if (anchor?.createdAt) {
@@ -1188,6 +1253,7 @@ export function createRoomsRouter({
 
       // Load up to 200 unread non-deleted messages (oldest first).
       let docs = await Message.find({
+        workspace: room.workspace,
         room: room._id,
         deletedAt: null,
         createdAt: { $gt: sinceDate },
@@ -1199,6 +1265,7 @@ export function createRoomsRouter({
       // Fall back to the most recent 50 non-deleted messages if nothing is unread.
       if (docs.length === 0) {
         docs = await Message.find({
+          workspace: room.workspace,
           room: room._id,
           deletedAt: null,
         })

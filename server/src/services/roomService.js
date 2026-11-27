@@ -34,6 +34,7 @@ export function serializeRoom(roomDoc, currentUserId, { lastMessage = null, unre
 
   return {
     _id: roomDoc._id.toString(),
+    workspace: roomDoc.workspace ? roomDoc.workspace.toString() : undefined,
     name: roomDoc.type === 'dm' ? otherUser?.username || 'Direct Message' : roomDoc.name,
     type: roomDoc.type,
     createdBy: roomDoc.createdBy ? roomDoc.createdBy.toString() : null,
@@ -58,9 +59,12 @@ export function serializeRoom(roomDoc, currentUserId, { lastMessage = null, unre
  * Fetches all rooms the user belongs to, enriched with lastMessage preview,
  * unreadCount, and DM partner details.
  */
-export async function getRoomsWithPreviews(userId) {
+export async function getRoomsWithPreviews(userId, workspaceId = null) {
   const userObjectId = new mongoose.Types.ObjectId(userId);
-  const rooms = await Room.find({ 'members.user': userObjectId })
+  const query = workspaceId
+    ? { workspace: workspaceId, 'members.user': userObjectId }
+    : { 'members.user': userObjectId };
+  const rooms = await Room.find(query, null, workspaceId ? undefined : { bypassTenantScope: true })
     .populate('members.user', 'username')
     .lean();
 
@@ -89,6 +93,7 @@ export async function getRoomsWithPreviews(userId) {
       );
       const since = myMember?.lastReadAt || myMember?.joinedAt || new Date(0);
       return Message.countDocuments({
+        workspace: room.workspace,
         room: room._id,
         createdAt: { $gt: since },
         sender: { $ne: userObjectId },
@@ -115,19 +120,21 @@ export async function getRoomsWithPreviews(userId) {
 export async function getRoomMessages({
   roomId,
   userId,
+  workspaceId = null,
   before,
   after,
   around,
   limit = 50,
   storageService = defaultStorageService,
 }) {
-  const { room } = await getRoomIfMember(roomId, userId);
+  const { room } = await getRoomIfMember(roomId, userId, { workspaceId });
+  const wsId = room.workspace;
 
   const now = new Date();
   const notExpired = { $or: [{ expiresAt: null }, { expiresAt: { $gt: now } }] };
 
   if (around) {
-    const anchor = await Message.findOne({ _id: around, room: room._id, ...notExpired }).lean();
+    const anchor = await Message.findOne({ workspace: wsId, _id: around, room: room._id, ...notExpired }).lean();
     if (!anchor) {
       return { messages: [], hasMore: false, hasMoreOlder: false, hasMoreNewer: false };
     }
@@ -135,6 +142,7 @@ export async function getRoomMessages({
     const half = Math.floor((limit - 1) / 2);
     const [olderDocs, newerDocs] = await Promise.all([
       Message.find({
+        workspace: wsId,
         room: room._id,
         _id: { $ne: anchor._id },
         createdAt: { $lte: anchor.createdAt },
@@ -144,6 +152,7 @@ export async function getRoomMessages({
         .limit(half + 1)
         .lean(),
       Message.find({
+        workspace: wsId,
         room: room._id,
         _id: { $ne: anchor._id },
         createdAt: { $gte: anchor.createdAt },
@@ -187,6 +196,7 @@ export async function getRoomMessages({
 
   if (after) {
     const docs = await Message.find({
+      workspace: wsId,
       room: room._id,
       createdAt: { $gt: new Date(after) },
       ...notExpired,
@@ -205,7 +215,7 @@ export async function getRoomMessages({
     };
   }
 
-  const filter = { room: room._id, ...notExpired };
+  const filter = { workspace: wsId, room: room._id, ...notExpired };
   if (before) {
     filter.createdAt = { $lt: new Date(before) };
   }
@@ -236,12 +246,14 @@ export async function getRoomMessages({
 export async function getRoomChanges({
   roomId,
   userId,
+  workspaceId = null,
   since,
   storageService = defaultStorageService,
 }) {
-  const { room } = await getRoomIfMember(roomId, userId);
+  const { room } = await getRoomIfMember(roomId, userId, { workspaceId });
 
   const docs = await Message.find({
+    workspace: room.workspace,
     room: room._id,
     updatedAt: { $gt: new Date(since) },
   })

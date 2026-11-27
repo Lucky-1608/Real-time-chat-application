@@ -146,7 +146,7 @@ describe('Phase 4: Presence, Typing Indicators, Read Receipts & Reconnect Catch-
       bob.socket.emit('message:read', { messageIds: [msgAck.id] }, resolve);
     });
 
-    const doc = await Message.findById(msgAck.id).lean();
+    const doc = await Message.findById(msgAck.id, null, { bypassTenantScope: true }).lean();
     expect(doc.readBy.map((id) => id.toString())).toEqual([bob.user.id]);
   });
 
@@ -157,7 +157,7 @@ describe('Phase 4: Presence, Typing Indicators, Read Receipts & Reconnect Catch-
     const ack1 = await new Promise((resolve) => {
       alice.socket.emit('message:send', { text: 'before-drop' }, resolve);
     });
-    const firstMsg = await Message.findById(ack1.id).lean();
+    const firstMsg = await Message.findById(ack1.id, null, { bypassTenantScope: true }).lean();
 
     await new Promise((r) => setTimeout(r, 20));
     await new Promise((resolve) => {

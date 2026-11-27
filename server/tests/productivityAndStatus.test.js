@@ -237,7 +237,8 @@ describe('Sub-phase 9.1: Pinning, Starring, Drafts, Jump-to-Message, Notificatio
     if (generalRoom) {
       await Room.updateOne(
         { _id: generalRoom._id },
-        { $pull: { members: { user: stranger.user.id } } }
+        { $pull: { members: { user: stranger.user.id } } },
+        { bypassTenantScope: true }
       );
     }
 

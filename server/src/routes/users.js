@@ -126,14 +126,18 @@ export function createUsersRouter({ rateLimiter } = {}) {
   router.get(
     '/me/stars',
     asyncHandler(async (req, res) => {
-      const myRooms = await Room.find({ 'members.user': req.user.id }, { _id: 1, name: 1, type: 1 }).lean();
+      const myRooms = await Room.find(
+        { 'members.user': req.user.id },
+        { _id: 1, name: 1, type: 1 },
+        { bypassTenantScope: true }
+      ).lean();
       const allowedRoomIds = new Set(myRooms.map((r) => r._id.toString()));
       const roomById = new Map(myRooms.map((r) => [r._id.toString(), r]));
 
       const stars = await StarredMessage.find({ user: req.user.id })
         .sort({ createdAt: -1 })
         .limit(100)
-        .populate('message')
+        .populate({ path: 'message', options: { bypassTenantScope: true } })
         .lean();
 
       const valid = stars
@@ -194,7 +198,11 @@ export function createUsersRouter({ rateLimiter } = {}) {
         { new: true, select: { customStatus: 1, dnd: 1, globalMute: 1 } }
       ).lean();
 
-      const sharedRooms = await Room.find({ 'members.user': req.user.id }, { members: 1 }).lean();
+      const sharedRooms = await Room.find(
+        { 'members.user': req.user.id },
+        { members: 1 },
+        { bypassTenantScope: true }
+      ).lean();
       const recipientIds = new Set();
       for (const r of sharedRooms) {
         for (const m of r.members || []) {

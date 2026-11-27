@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../services/tenantScope.js';
 
 const memberSchema = new mongoose.Schema(
   {
@@ -36,6 +37,11 @@ const memberSchema = new mongoose.Schema(
 
 const roomSchema = new mongoose.Schema(
   {
+    workspace: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      required: true,
+    },
     name: {
       type: String,
       trim: true,
@@ -118,12 +124,16 @@ const roomSchema = new mongoose.Schema(
   }
 );
 
-roomSchema.index({ 'members.user': 1 });
-roomSchema.index({ dmKey: 1 }, { unique: true, sparse: true });
+roomSchema.index({ workspace: 1, 'members.user': 1 });
 roomSchema.index(
-  { nameLower: 1 },
+  { workspace: 1, dmKey: 1 },
+  { unique: true, partialFilterExpression: { dmKey: { $type: 'string' } } }
+);
+roomSchema.index(
+  { workspace: 1, nameLower: 1 },
   { unique: true, partialFilterExpression: { type: 'public' } }
 );
+roomSchema.plugin(tenantPlugin);
 
 roomSchema.pre('validate', function syncDerivedFields(next) {
   if (this.type === 'dm') {

@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import Message, { serializeMessage, serializePoll } from '../models/Message.js';
 import StarredMessage from '../models/StarredMessage.js';
 import { requireAuth } from '../middleware/auth.js';
+import { resolveWorkspace } from '../middleware/workspace.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { messagesQuerySchema, objectIdSchema, votePollSchema } from '../utils/validators.js';
 import { AppError } from '../middleware/errorHandler.js';
@@ -13,7 +14,7 @@ import { can } from '../services/permissions.js';
 export function createMessagesRouter() {
   const router = Router();
 
-  router.use(requireAuth);
+  router.use(requireAuth, resolveWorkspace);
 
   router.get(
     '/',
@@ -24,11 +25,14 @@ export function createMessagesRouter() {
       }
 
       const { before, after, limit, roomId } = parsed.data;
-      const targetRoomId = roomId || (await ensureGeneralRoom()).room._id.toString();
-      const { room } = await getRoomIfMember(targetRoomId, req.user.id);
+      const targetRoomId = roomId || (await ensureGeneralRoom(req.workspaceId)).room._id.toString();
+      const { room } = await getRoomIfMember(targetRoomId, req.user.id, {
+        workspaceId: req.workspaceId,
+      });
 
       if (after) {
         const docs = await Message.find({
+          workspace: req.workspaceId,
           room: room._id,
           createdAt: { $gt: new Date(after) },
         })
@@ -42,7 +46,7 @@ export function createMessagesRouter() {
         });
       }
 
-      const filter = { room: room._id };
+      const filter = { workspace: req.workspaceId, room: room._id };
       if (before) {
         filter.createdAt = { $lt: new Date(before) };
       }
@@ -72,10 +76,13 @@ export function createMessagesRouter() {
       const parsed = objectIdSchema.safeParse(req.params.id);
       if (!parsed.success) throw new AppError('Invalid message ID', 400);
 
-      const msg = await Message.findById(parsed.data, { room: 1, deletedAt: 1 }).lean();
+      const msg = await Message.findOne(
+        { _id: parsed.data, workspace: req.workspaceId },
+        { room: 1, deletedAt: 1 }
+      ).lean();
       if (!msg || msg.deletedAt) throw new AppError('Message not found', 404);
 
-      await getRoomIfMember(msg.room.toString(), req.user.id);
+      await getRoomIfMember(msg.room.toString(), req.user.id, { workspaceId: req.workspaceId });
 
       await StarredMessage.updateOne(
         { user: req.user.id, message: msg._id },
@@ -109,12 +116,12 @@ export function createMessagesRouter() {
         throw new AppError(bodyParsed.error.issues[0]?.message || 'Invalid vote payload', 400);
       }
 
-      const msg = await Message.findById(idParsed.data);
+      const msg = await Message.findOne({ _id: idParsed.data, workspace: req.workspaceId });
       if (!msg || msg.deletedAt || msg.kind !== 'poll' || !msg.poll) {
         throw new AppError('Poll not found', 404);
       }
 
-      await getRoomIfMember(msg.room.toString(), req.user.id);
+      await getRoomIfMember(msg.room.toString(), req.user.id, { workspaceId: req.workspaceId });
 
       const isClosed =
         Boolean(msg.poll.closedAt) ||
@@ -137,16 +144,19 @@ export function createMessagesRouter() {
       // Atomic per-user vote replacement: pulling only this user's ID and $addToSet
       // ensures concurrent votes from multiple users never overwrite each other.
       await Message.updateOne(
-        { _id: msg._id },
+        { _id: msg._id, workspace: req.workspaceId },
         { $pull: { 'poll.options.$[].votes': userObjectId } }
       );
       await Message.updateOne(
-        { _id: msg._id },
+        { _id: msg._id, workspace: req.workspaceId },
         { $addToSet: { 'poll.options.$[opt].votes': userObjectId } },
         { arrayFilters: [{ 'opt.id': { $in: uniqueOptions } }] }
       );
 
-      const updated = await Message.findById(msg._id, { poll: 1, room: 1 }).lean();
+      const updated = await Message.findOne(
+        { _id: msg._id, workspace: req.workspaceId },
+        { poll: 1, room: 1 }
+      ).lean();
       const poll = serializePoll(updated.poll);
       const io = req.app.locals.io;
       if (io) {
@@ -168,12 +178,14 @@ export function createMessagesRouter() {
       const idParsed = objectIdSchema.safeParse(req.params.id);
       if (!idParsed.success) throw new AppError('Invalid message ID', 400);
 
-      const msg = await Message.findById(idParsed.data);
+      const msg = await Message.findOne({ _id: idParsed.data, workspace: req.workspaceId });
       if (!msg || msg.deletedAt || msg.kind !== 'poll' || !msg.poll) {
         throw new AppError('Poll not found', 404);
       }
 
-      const { room } = await getRoomIfMember(msg.room.toString(), req.user.id);
+      const { room } = await getRoomIfMember(msg.room.toString(), req.user.id, {
+        workspaceId: req.workspaceId,
+      });
       const isCreator = msg.sender.toString() === req.user.id;
       if (!isCreator && !can(req.user, 'message.delete_any', { room })) {
         throw new AppError('Only the poll creator or a moderator can close this poll', 403);

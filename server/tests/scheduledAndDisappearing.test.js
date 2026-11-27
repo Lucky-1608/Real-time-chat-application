@@ -165,7 +165,7 @@ describe('Sub-phase 9.2: Scheduled & Disappearing Messages', () => {
     ]);
     expect([resA, resB].filter(Boolean)).toHaveLength(1);
 
-    const msgs = await Message.find({ room: roomId }).lean();
+    const msgs = await Message.find({ room: roomId }, null, { bypassTenantScope: true }).lean();
     expect(msgs).toHaveLength(1);
     expect(msgs[0].text).toBe('Scheduled hello');
 
@@ -186,7 +186,7 @@ describe('Sub-phase 9.2: Scheduled & Disappearing Messages', () => {
 
     const failedJob = await ScheduledMessage.findById(sched3.body.scheduled._id).lean();
     expect(failedJob.status).toBe('failed');
-    expect(await Message.countDocuments({ room: roomId })).toBe(1);
+    expect(await Message.countDocuments({ room: roomId }, { bypassTenantScope: true })).toBe(1);
   });
 
   it('filters expired disappearing messages on read, sweeps them with message:deleted, and cleans up attachments', async () => {
@@ -228,11 +228,15 @@ describe('Sub-phase 9.2: Scheduled & Disappearing Messages', () => {
     });
     expect(ack.ok).toBe(true);
 
-    const created = await Message.findById(ack.id).lean();
+    const created = await Message.findById(ack.id, null, { bypassTenantScope: true }).lean();
     expect(created.expiresAt).toBeTruthy();
 
     // Force expiresAt into the past -> read filtering hides it immediately
-    await Message.updateOne({ _id: ack.id }, { $set: { expiresAt: new Date(Date.now() - 1000) } });
+    await Message.updateOne(
+      { _id: ack.id },
+      { $set: { expiresAt: new Date(Date.now() - 1000) } },
+      { bypassTenantScope: true }
+    );
 
     const histRes = await request(app)
       .get(`/api/rooms/${roomId}/messages`)
@@ -247,6 +251,6 @@ describe('Sub-phase 9.2: Scheduled & Disappearing Messages', () => {
     const delEvt = await deletedPromise;
     expect(delEvt.messageId).toBe(ack.id);
     expect(deletedKeys).toContain(presign.body.key);
-    expect(await Message.findById(ack.id)).toBeNull();
+    expect(await Message.findById(ack.id, null, { bypassTenantScope: true })).toBeNull();
   });
 });

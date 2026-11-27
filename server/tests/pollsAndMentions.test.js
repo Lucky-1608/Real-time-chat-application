@@ -185,7 +185,7 @@ describe('Sub-phase 9.3: Polls & @Mentions Validation', () => {
     });
     expect(okAck.ok).toBe(true);
 
-    const msg = await Message.findById(okAck.id).lean();
+    const msg = await Message.findById(okAck.id, null, { bypassTenantScope: true }).lean();
     expect(msg.mentions.map((id) => id.toString())).toEqual([bob.user.id]);
   });
 });

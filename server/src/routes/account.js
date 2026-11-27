@@ -3,6 +3,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import User from '../models/User.js';
 import Room from '../models/Room.js';
+import WorkspaceMember from '../models/WorkspaceMember.js';
 import Message from '../models/Message.js';
 import Session from '../models/Session.js';
 import Report from '../models/Report.js';
@@ -81,7 +82,8 @@ export function createAccountRouter({
       // 1. Delete uploaded objects belonging to this user's messages
       const userMsgsWithAttachments = await Message.find(
         { sender: userId, 'attachments.0': { $exists: true } },
-        { attachments: 1 }
+        { attachments: 1 },
+        { bypassTenantScope: true }
       ).lean();
 
       for (const msg of userMsgsWithAttachments) {
@@ -93,16 +95,17 @@ export function createAccountRouter({
       // 2. Anonymize messages (keep text/tombstones for other members' history)
       await Message.updateMany(
         { sender: userId },
-        { $set: { senderName: 'Deleted user', attachments: [] } }
+        { $set: { senderName: 'Deleted user', attachments: [] } },
+        { bypassTenantScope: true }
       );
 
       // 3. Remove from rooms; transfer ownership or delete empty/DM rooms
-      const rooms = await Room.find({ 'members.user': userId });
+      const rooms = await Room.find({ 'members.user': userId }, null, { bypassTenantScope: true });
       for (const room of rooms) {
         const remaining = room.members.filter((m) => m.user.toString() !== userIdStr);
         if (room.type === 'dm' || (remaining.length === 0 && room.nameLower !== 'general')) {
-          await Message.deleteMany({ room: room._id });
-          await Room.deleteOne({ _id: room._id });
+          await Message.deleteMany({ workspace: room.workspace, room: room._id });
+          await Room.deleteOne({ _id: room._id, workspace: room.workspace });
         } else {
           const wasOwner = room.members.some(
             (m) => m.user.toString() === userIdStr && m.role === 'owner'
@@ -147,6 +150,7 @@ export function createAccountRouter({
       });
 
       await Promise.all([
+        WorkspaceMember.deleteMany({ user: userId }),
         Session.deleteMany({ user: userId }),
         User.deleteOne({ _id: userId }),
       ]);
@@ -167,10 +171,15 @@ export function createAccountRouter({
       }
 
       const [rooms, messages] = await Promise.all([
-        Room.find({ 'members.user': user._id }, { name: 1, type: 1, createdAt: 1 }).lean(),
+        Room.find(
+          { 'members.user': user._id },
+          { name: 1, type: 1, createdAt: 1 },
+          { bypassTenantScope: true }
+        ).lean(),
         Message.find(
           { sender: user._id },
-          { room: 1, text: 1, createdAt: 1, editedAt: 1, deletedAt: 1, attachments: 1 }
+          { room: 1, text: 1, createdAt: 1, editedAt: 1, deletedAt: 1, attachments: 1 },
+          { bypassTenantScope: true }
         )
           .sort({ createdAt: 1 })
           .lean(),

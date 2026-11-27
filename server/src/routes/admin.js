@@ -168,7 +168,11 @@ export function createAdminRouter({ rateLimiter } = {}) {
   router.get(
     '/rooms',
     asyncHandler(async (_req, res) => {
-      const rooms = await Room.find({}, { name: 1, type: 1, members: 1, slowModeSeconds: 1, announcementMode: 1, createdAt: 1 })
+      const rooms = await Room.find(
+        {},
+        { name: 1, type: 1, members: 1, slowModeSeconds: 1, announcementMode: 1, createdAt: 1 },
+        { bypassTenantScope: true }
+      )
         .sort({ createdAt: -1 })
         .limit(50)
         .lean();
@@ -195,8 +199,8 @@ export function createAdminRouter({ rateLimiter } = {}) {
         await Promise.all([
           User.countDocuments({}),
           User.countDocuments({ suspendedAt: { $ne: null } }),
-          Room.countDocuments({}),
-          Message.countDocuments({ 'attachments.0': { $exists: true } }),
+          Room.countDocuments({}, { bypassTenantScope: true }),
+          Message.countDocuments({ 'attachments.0': { $exists: true } }, { bypassTenantScope: true }),
           AuditEvent.countDocuments({ action: 'upload.rejected' }),
           Message.aggregate([
             { $match: { createdAt: { $gte: sevenDaysAgo } } },

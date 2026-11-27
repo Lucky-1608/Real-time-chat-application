@@ -34,14 +34,19 @@ async function seed() {
       }
       createdIds.push(doc._id);
       await Room.updateOne(
-        { _id: general._id, 'members.user': { $ne: doc._id } },
+        { _id: general._id, workspace: general.workspace, 'members.user': { $ne: doc._id } },
         { $push: { members: { user: doc._id, role: 'member' } } }
       );
     }
 
-    const existingLounge = await Room.findOne({ nameLower: 'lounge', type: 'public' });
+    const existingLounge = await Room.findOne({
+      workspace: general.workspace,
+      nameLower: 'lounge',
+      type: 'public',
+    });
     if (!existingLounge) {
       await Room.create({
+        workspace: general.workspace,
         name: 'Lounge',
         type: 'public',
         createdBy: createdIds[0],

@@ -4,6 +4,8 @@ import env from '../config/env.js';
 import { verifyToken } from '../middleware/auth.js';
 import Room from '../models/Room.js';
 import Session from '../models/Session.js';
+import WorkspaceMember from '../models/WorkspaceMember.js';
+import { ensureDefaultWorkspace } from '../services/workspaceMigration.js';
 import { isSessionActive } from '../services/sessionService.js';
 import { activeSocketsGauge, socketEventsCounter } from '../services/metricsService.js';
 import { registerChatHandlers } from './chatHandlers.js';
@@ -98,9 +100,33 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
       socket.data.clientIp = ip;
 
       if (mongoose.connection.readyState === 1 && mongoose.isValidObjectId(user.id)) {
-        const rooms = await Room.find({ 'members.user': user.id }, { _id: 1 }).lean();
+        let memberships = await WorkspaceMember.find(
+          { user: user.id, status: 'active' },
+          { workspace: 1 }
+        ).lean();
+        if (memberships.length === 0) {
+          const { workspace } = await ensureDefaultWorkspace(user.id);
+          await WorkspaceMember.updateOne(
+            { workspace: workspace._id, user: user.id },
+            { $setOnInsert: { workspace: workspace._id, user: user.id, role: 'member', status: 'active' } },
+            { upsert: true }
+          );
+          memberships = [{ workspace: workspace._id }];
+        }
+        socket.data.workspaceIds = memberships.map((m) => m.workspace.toString());
+        const requestedWs = socket.handshake.auth?.workspaceId;
+        socket.data.activeWorkspaceId =
+          requestedWs && socket.data.workspaceIds.includes(String(requestedWs))
+            ? String(requestedWs)
+            : socket.data.workspaceIds[0];
+
+        const rooms = await Room.find(
+          { workspace: { $in: memberships.map((m) => m.workspace) }, 'members.user': user.id },
+          { _id: 1 }
+        ).lean();
         socket.data.initialRoomIds = rooms.map((r) => r._id.toString());
       } else {
+        socket.data.workspaceIds = [];
         socket.data.initialRoomIds = [];
       }
 

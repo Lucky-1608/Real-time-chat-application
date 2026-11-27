@@ -5,6 +5,7 @@ import Room from '../models/Room.js';
 import Message from '../models/Message.js';
 import User from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
+import { resolveWorkspace } from '../middleware/workspace.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { createReportSchema, moderationActionSchema, objectIdSchema } from '../utils/validators.js';
@@ -17,7 +18,7 @@ import env from '../config/env.js';
 
 export function createReportsRouter({ rateLimiter, reportRateLimiter } = {}) {
   const router = Router();
-  router.use(requireAuth);
+  router.use(requireAuth, resolveWorkspace);
   if (rateLimiter) {
     router.use(rateLimiter);
   }
@@ -43,13 +44,17 @@ export function createReportsRouter({ rateLimiter, reportRateLimiter } = {}) {
       }
 
       const { targetType, targetId, roomId, reason, note } = parsed.data;
-      const { room } = await getRoomIfMember(roomId, req.user.id);
+      const { room } = await getRoomIfMember(roomId, req.user.id, { workspaceId: req.workspaceId });
 
       let targetUser = null;
       let messageSnapshot = null;
 
       if (targetType === 'message') {
-        const msg = await Message.findOne({ _id: targetId, room: room._id }).lean();
+        const msg = await Message.findOne({
+          _id: targetId,
+          workspace: room.workspace,
+          room: room._id,
+        }).lean();
         if (!msg) {
           throw new AppError('Message not found in this room', 404);
         }
@@ -171,7 +176,11 @@ export function createReportsRouter({ rateLimiter, reportRateLimiter } = {}) {
       const targetUserId = report.targetUser?.toString();
 
       if (action === 'delete_message' && report.targetType === 'message') {
-        const msg = await Message.findById(report.targetId);
+        const msg = await Message.findOne(
+          { _id: report.targetId },
+          null,
+          { bypassTenantScope: true }
+        );
         if (msg && !msg.deletedAt) {
           msg.text = '';
           msg.deletedAt = new Date();
@@ -191,7 +200,11 @@ export function createReportsRouter({ rateLimiter, reportRateLimiter } = {}) {
           message: note || 'You have received a moderation warning.',
         });
       } else if (action === 'kick' && targetUserId) {
-        await Room.updateOne({ _id: report.roomId }, { $pull: { members: { user: targetUserId } } });
+        await Room.updateOne(
+          { _id: report.roomId },
+          { $pull: { members: { user: targetUserId } } },
+          { bypassTenantScope: true }
+        );
         if (io) {
           io.in(`user:${targetUserId}`).socketsLeave(`room:${roomIdStr}`);
           io.to(`user:${targetUserId}`).emit('room:left', { roomId: roomIdStr });
@@ -210,7 +223,8 @@ export function createReportsRouter({ rateLimiter, reportRateLimiter } = {}) {
                 bannedAt: new Date(),
               },
             },
-          }
+          },
+          { bypassTenantScope: true }
         );
         await audit('room.ban', {
           actor: req.user.id,

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import User from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
+import { resolveWorkspace } from '../middleware/workspace.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { presignUploadSchema } from '../utils/validators.js';
@@ -17,7 +18,7 @@ export function createUploadsRouter({
 } = {}) {
   const router = Router();
 
-  router.use(requireAuth);
+  router.use(requireAuth, resolveWorkspace);
   if (rateLimiter) {
     router.use(rateLimiter);
   }
@@ -32,7 +33,7 @@ export function createUploadsRouter({
       }
 
       const { roomId, contentType, size } = parsed.data;
-      const { room } = await getRoomIfMember(roomId, req.user.id);
+      const { room } = await getRoomIfMember(roomId, req.user.id, { workspaceId: req.workspaceId });
       assertCan(req.user, 'message.send', { room });
 
       const user = await User.findById(req.user.id, { createdAt: 1 }).lean();

@@ -95,9 +95,13 @@ export function createSchedulerService({
 
   async function sweepExpiredMessages() {
     const now = nowFn();
-    const expiredDocs = await Message.find({
-      expiresAt: { $ne: null, $lte: now },
-    })
+    const expiredDocs = await Message.find(
+      {
+        expiresAt: { $ne: null, $lte: now },
+      },
+      null,
+      { bypassTenantScope: true }
+    )
       .limit(100)
       .lean();
 
@@ -107,7 +111,7 @@ export function createSchedulerService({
       for (const att of msg.attachments || []) {
         await storageService.deleteObject(att.key).catch(() => {});
       }
-      await Message.deleteOne({ _id: msg._id });
+      await Message.deleteOne({ _id: msg._id, workspace: msg.workspace });
       if (io) {
         const roomId = msg.room.toString();
         io.to(`room:${roomId}`).emit('message:deleted', {

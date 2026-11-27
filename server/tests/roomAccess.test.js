@@ -10,6 +10,7 @@ import User from '../src/models/User.js';
 import Room, { makeDmKey } from '../src/models/Room.js';
 import Message from '../src/models/Message.js';
 import { assertRoomOwner, getRoomIfMember } from '../src/services/roomAccess.js';
+import { ensureDefaultWorkspace } from '../src/services/workspaceMigration.js';
 
 describe('Sub-phase 6.2: Room Authorization & IDOR Protection', () => {
   let mongoServer;
@@ -75,23 +76,27 @@ describe('Sub-phase 6.2: Room Authorization & IDOR Protection', () => {
     });
 
     it('returns 403 for non-members of public rooms and 404 for private/DM rooms (no existence leak)', async () => {
+      const wsId = new mongoose.Types.ObjectId();
       const ownerId = new mongoose.Types.ObjectId();
       const outsiderId = new mongoose.Types.ObjectId();
       const partnerId = new mongoose.Types.ObjectId();
 
       const pub = await Room.create({
+        workspace: wsId,
         name: 'Engineering',
         type: 'public',
         createdBy: ownerId,
         members: [{ user: ownerId, role: 'owner' }],
       });
       const priv = await Room.create({
+        workspace: wsId,
         name: 'Secret',
         type: 'private',
         createdBy: ownerId,
         members: [{ user: ownerId, role: 'owner' }],
       });
       const dm = await Room.create({
+        workspace: wsId,
         type: 'dm',
         dmKey: makeDmKey(ownerId, partnerId),
         createdBy: ownerId,
@@ -113,10 +118,12 @@ describe('Sub-phase 6.2: Room Authorization & IDOR Protection', () => {
     });
 
     it('enforces owner role for owner-only actions', async () => {
+      const wsId = new mongoose.Types.ObjectId();
       const ownerId = new mongoose.Types.ObjectId();
       const memberId = new mongoose.Types.ObjectId();
 
       const priv = await Room.create({
+        workspace: wsId,
         name: 'PrivateOps',
         type: 'private',
         createdBy: ownerId,
@@ -138,14 +145,17 @@ describe('Sub-phase 6.2: Room Authorization & IDOR Protection', () => {
   describe('IDOR checks across REST and Socket handlers', () => {
     it('prevents user B from reading, posting to, typing in, or marking read in user A private room or DM', async () => {
       const { app, url, alice, bob, charlie } = await setupUsersAndServer();
+      const { workspace } = await ensureDefaultWorkspace();
 
       const alicePrivate = await Room.create({
+        workspace: workspace._id,
         name: 'AliceOnly',
         type: 'private',
         createdBy: alice.user.id,
         members: [{ user: alice.user.id, role: 'owner' }],
       });
       const aliceCharlieDm = await Room.create({
+        workspace: workspace._id,
         type: 'dm',
         dmKey: makeDmKey(alice.user.id, charlie.user.id),
         createdBy: alice.user.id,
@@ -156,6 +166,7 @@ describe('Sub-phase 6.2: Room Authorization & IDOR Protection', () => {
       });
 
       const privateMsg = await Message.create({
+        workspace: workspace._id,
         room: alicePrivate._id,
         sender: alice.user.id,
         senderName: alice.user.username,
@@ -217,8 +228,8 @@ describe('Sub-phase 6.2: Room Authorization & IDOR Protection', () => {
       expect(readPrivAck.ok).toBe(false);
 
       // Confirm no unauthorized messages were persisted in Alice's private room
-      expect(await Message.countDocuments({ room: alicePrivate._id })).toBe(1);
-      expect(await Message.countDocuments({ room: aliceCharlieDm._id })).toBe(0);
+      expect(await Message.countDocuments({ workspace: workspace._id, room: alicePrivate._id })).toBe(1);
+      expect(await Message.countDocuments({ workspace: workspace._id, room: aliceCharlieDm._id })).toBe(0);
     });
   });
 });

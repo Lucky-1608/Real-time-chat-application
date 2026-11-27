@@ -73,6 +73,7 @@ export async function deliverMessage({
   let doc;
   try {
     doc = await Message.create({
+      workspace: room.workspace,
       room: room._id,
       sender: userId,
       senderName: username,
@@ -86,7 +87,7 @@ export async function deliverMessage({
     // Idempotency guard: if a scheduled message was already inserted by another worker,
     // return the existing message without broadcasting a duplicate.
     if (err.code === 11000 && scheduledKey) {
-      const existing = await Message.findOne({ scheduledKey }).lean();
+      const existing = await Message.findOne({ workspace: room.workspace, scheduledKey }).lean();
       if (existing) {
         return { ok: true, id: existing._id.toString(), duplicate: true };
       }
@@ -140,6 +141,7 @@ export async function deliverMessage({
           eligible.map(async (member) => {
             const since = member.lastReadAt || member.joinedAt || new Date(0);
             const unreadCount = await Message.countDocuments({
+              workspace: room.workspace,
               room: room._id,
               createdAt: { $gt: since },
               sender: { $ne: member.user },

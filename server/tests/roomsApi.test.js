@@ -45,22 +45,26 @@ describe('Sub-phase 6.3: Rooms & Users REST API', () => {
       .send({ userId: bob.user.id });
     expect(dmRes.status).toBe(201);
     const dmId = dmRes.body.room._id;
+    const wsId = dmRes.body.room.workspace;
 
     // Bob sends 2 messages and Alice sends 1 message in DM
     await new Promise((r) => setTimeout(r, 15));
     await Message.create({
+      workspace: wsId,
       room: dmId,
       sender: bob.user.id,
       senderName: 'Bob',
       text: 'Hey Alice 1',
     });
     await Message.create({
+      workspace: wsId,
       room: dmId,
       sender: bob.user.id,
       senderName: 'Bob',
       text: 'Hey Alice 2',
     });
     await Message.create({
+      workspace: wsId,
       room: dmId,
       sender: alice.user.id,
       senderName: 'Alice',
@@ -141,7 +145,7 @@ describe('Sub-phase 6.3: Rooms & Users REST API', () => {
     expect([200, 201]).toContain(res1.status);
     expect([200, 201]).toContain(res2.status);
     expect(res1.body.room._id).toBe(res2.body.room._id);
-    expect(await Room.countDocuments({ type: 'dm' })).toBe(1);
+    expect(await Room.countDocuments({ type: 'dm' }, { bypassTenantScope: true })).toBe(1);
   });
 
   it('enforces owner-only invites on private rooms and leave rules (member leaves, owner & DM blocked)', async () => {
@@ -205,10 +209,12 @@ describe('Sub-phase 6.3: Rooms & Users REST API', () => {
       .set('Authorization', `Bearer ${alice.token}`)
       .send({ name: 'PrivateLogs', type: 'private' });
     const roomId = priv.body.room._id;
+    const wsId = priv.body.room.workspace;
 
     const base = new Date('2026-01-01T10:00:00.000Z').getTime();
     for (let i = 1; i <= 4; i++) {
       await Message.create({
+        workspace: wsId,
         room: roomId,
         sender: alice.user.id,
         senderName: 'Alice',
@@ -255,10 +261,15 @@ describe('Sub-phase 6.3: Rooms & Users REST API', () => {
   it('enforces MAX_ROOMS_PER_USER cap on room creation', async () => {
     const app = createApp();
     const alice = await register(app, 'Alice'); // already in General (1)
+    const roomsRes = await request(app)
+      .get('/api/rooms')
+      .set('Authorization', `Bearer ${alice.token}`);
+    const wsId = roomsRes.body.rooms[0].workspace;
 
     const bulk = [];
     for (let i = 1; i < MAX_ROOMS_PER_USER; i++) {
       bulk.push({
+        workspace: wsId,
         name: `Room_${i}`,
         nameLower: `room_${i}`,
         type: 'private',
@@ -292,9 +303,11 @@ describe('Sub-phase 6.3: Rooms & Users REST API', () => {
       .set('Authorization', `Bearer ${alice.token}`)
       .send({ userId: bob.user.id });
     const dmId = dmRes.body.room._id;
+    const wsId = dmRes.body.room.workspace;
 
     await new Promise((r) => setTimeout(r, 15));
     await Message.create({
+      workspace: wsId,
       room: dmId,
       sender: bob.user.id,
       senderName: 'Bob',
@@ -307,7 +320,7 @@ describe('Sub-phase 6.3: Rooms & Users REST API', () => {
     expect(beforeRead.body.rooms.find((r) => r._id === dmId).unreadCount).toBe(1);
 
     await Room.updateOne(
-      { _id: dmId, 'members.user': alice.user.id },
+      { _id: dmId, workspace: wsId, 'members.user': alice.user.id },
       { $set: { 'members.$.lastReadAt': new Date(Date.now() + 1000) } }
     );
 

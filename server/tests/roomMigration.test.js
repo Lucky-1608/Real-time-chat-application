@@ -41,8 +41,10 @@ describe('Sub-phase 6.1: Room Schema, DM Uniqueness & Idempotent Migration', () 
     const dmKey = makeDmKey(alice._id, bob._id);
     expect(dmKey).toBe(makeDmKey(bob._id, alice._id));
 
+    const wsId = new mongoose.Types.ObjectId();
     const results = await Promise.allSettled([
       Room.create({
+        workspace: wsId,
         type: 'dm',
         dmKey,
         createdBy: alice._id,
@@ -52,6 +54,7 @@ describe('Sub-phase 6.1: Room Schema, DM Uniqueness & Idempotent Migration', () 
         ],
       }),
       Room.create({
+        workspace: wsId,
         type: 'dm',
         dmKey,
         createdBy: bob._id,
@@ -69,13 +72,14 @@ describe('Sub-phase 6.1: Room Schema, DM Uniqueness & Idempotent Migration', () 
     expect(rejected).toHaveLength(1);
     expect(rejected[0].reason.code).toBe(11000);
 
-    const dmCount = await Room.countDocuments({ type: 'dm', dmKey });
+    const dmCount = await Room.countDocuments({ workspace: wsId, type: 'dm', dmKey });
     expect(dmCount).toBe(1);
   });
 
   it('enforces case-insensitive unique name for public rooms while allowing DMs without names', async () => {
-    await Room.create({ name: 'Design', type: 'public' });
-    await expect(Room.create({ name: 'design', type: 'public' })).rejects.toMatchObject({
+    const wsId = new mongoose.Types.ObjectId();
+    await Room.create({ workspace: wsId, name: 'Design', type: 'public' });
+    await expect(Room.create({ workspace: wsId, name: 'design', type: 'public' })).rejects.toMatchObject({
       code: 11000,
     });
 
@@ -83,9 +87,9 @@ describe('Sub-phase 6.1: Room Schema, DM Uniqueness & Idempotent Migration', () 
     const u1 = new mongoose.Types.ObjectId();
     const u2 = new mongoose.Types.ObjectId();
     const u3 = new mongoose.Types.ObjectId();
-    await Room.create({ type: 'dm', dmKey: makeDmKey(u1, u2), members: [] });
-    await Room.create({ type: 'dm', dmKey: makeDmKey(u1, u3), members: [] });
-    expect(await Room.countDocuments({ type: 'dm' })).toBe(2);
+    await Room.create({ workspace: wsId, type: 'dm', dmKey: makeDmKey(u1, u2), members: [] });
+    await Room.create({ workspace: wsId, type: 'dm', dmKey: makeDmKey(u1, u3), members: [] });
+    expect(await Room.countDocuments({ workspace: wsId, type: 'dm' })).toBe(2);
   });
 
   it('runs migrateRooms idempotently: creates General, adds users, migrates legacy messages, and repeats cleanly', async () => {
@@ -126,14 +130,14 @@ describe('Sub-phase 6.1: Room Schema, DM Uniqueness & Idempotent Migration', () 
     expect(firstRun.addedUsersCount).toBe(2);
     expect(firstRun.migratedMessagesCount).toBe(2);
 
-    const general = await Room.findById(firstRun.generalRoomId).lean();
+    const general = await Room.findById(firstRun.generalRoomId, null, { bypassTenantScope: true }).lean();
     expect(general.name).toBe('General');
     expect(general.type).toBe('public');
     expect(general.members.map((m) => m.user.toString()).sort()).toEqual(
       [alice._id.toString(), bob._id.toString()].sort()
     );
 
-    const migratedMsgs = await Message.find({ room: general._id }).lean();
+    const migratedMsgs = await Message.find({ workspace: general.workspace, room: general._id }).lean();
     expect(migratedMsgs).toHaveLength(2);
 
     // Second run must change nothing.
@@ -150,7 +154,11 @@ describe('Sub-phase 6.1: Room Schema, DM Uniqueness & Idempotent Migration', () 
       .send({ username: 'NewMember', password: 'password123' });
 
     expect(res.status).toBe(201);
-    const general = await Room.findOne({ nameLower: 'general', type: 'public' }).lean();
+    const general = await Room.findOne(
+      { nameLower: 'general', type: 'public' },
+      null,
+      { bypassTenantScope: true }
+    ).lean();
     expect(general).not.toBeNull();
     expect(general.members.some((m) => m.user.toString() === res.body.user.id)).toBe(true);
   });

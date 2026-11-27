@@ -202,11 +202,11 @@ describe('Sub-phase 8.10: Privacy, Encryption Rotation, Account Deletion, Export
     expect(await Session.countDocuments({ user: alice.user.id })).toBe(0);
     expect(objects.has(presign.body.key)).toBe(false);
 
-    const msg = await Message.findOne({ room: roomId }).lean();
+    const msg = await Message.findOne({ room: roomId }, null, { bypassTenantScope: true }).lean();
     expect(msg.senderName).toBe('Deleted user');
     expect(msg.attachments).toHaveLength(0);
 
-    const updatedRoom = await Room.findById(roomId).lean();
+    const updatedRoom = await Room.findById(roomId, null, { bypassTenantScope: true }).lean();
     expect(updatedRoom.members.some((m) => m.user.toString() === alice.user.id)).toBe(false);
     expect(updatedRoom.members.find((m) => m.user.toString() === bob.user.id)?.role).toBe('owner');
   });

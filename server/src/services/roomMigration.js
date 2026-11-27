@@ -1,20 +1,26 @@
 import Room from '../models/Room.js';
 import User from '../models/User.js';
 import Message from '../models/Message.js';
+import {
+  addUserToDefaultWorkspace,
+  ensureDefaultWorkspace,
+} from './workspaceMigration.js';
 
 export const GENERAL_ROOM_NAME = 'General';
 
 /**
  * Finds or creates the seeded public "General" room safely under concurrent calls.
  */
-export async function ensureGeneralRoom() {
-  let general = await Room.findOne({ nameLower: 'general', type: 'public' });
+export async function ensureGeneralRoom(workspaceId = null) {
+  const wsId = workspaceId || (await ensureDefaultWorkspace()).workspace._id;
+  let general = await Room.findOne({ workspace: wsId, nameLower: 'general', type: 'public' });
   if (general) {
     return { room: general, created: false };
   }
 
   try {
     general = await Room.create({
+      workspace: wsId,
       name: GENERAL_ROOM_NAME,
       type: 'public',
       members: [],
@@ -22,7 +28,7 @@ export async function ensureGeneralRoom() {
     return { room: general, created: true };
   } catch (err) {
     if (err.code === 11000) {
-      general = await Room.findOne({ nameLower: 'general', type: 'public' });
+      general = await Room.findOne({ workspace: wsId, nameLower: 'general', type: 'public' });
       if (general) return { room: general, created: false };
     }
     throw err;
@@ -32,11 +38,14 @@ export async function ensureGeneralRoom() {
 /**
  * Adds a single user to the "General" room if not already a member.
  */
-export async function addUserToGeneralRoom(userId) {
-  const { room } = await ensureGeneralRoom();
+export async function addUserToGeneralRoom(userId, workspaceId = null) {
+  const ws = workspaceId
+    ? { _id: workspaceId }
+    : await addUserToDefaultWorkspace(userId);
+  const { room } = await ensureGeneralRoom(ws._id);
   const now = new Date();
   await Room.updateOne(
-    { _id: room._id, 'members.user': { $ne: userId } },
+    { _id: room._id, workspace: room.workspace, 'members.user': { $ne: userId } },
     {
       $push: {
         members: {
@@ -76,7 +85,7 @@ export async function migrateRooms() {
   let addedUsersCount = 0;
   if (missingMembers.length > 0) {
     await Room.updateOne(
-      { _id: general._id },
+      { _id: general._id, workspace: general.workspace },
       { $push: { members: { $each: missingMembers } } }
     );
     addedUsersCount = missingMembers.length;
@@ -84,7 +93,7 @@ export async function migrateRooms() {
 
   const msgResult = await Message.collection.updateMany(
     { $or: [{ room: { $exists: false } }, { room: null }] },
-    { $set: { room: general._id }, $unset: { roomId: '' } }
+    { $set: { room: general._id, workspace: general.workspace }, $unset: { roomId: '' } }
   );
   const migratedMessagesCount = msgResult.modifiedCount || 0;
 

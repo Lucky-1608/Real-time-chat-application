@@ -35,8 +35,8 @@ function isSocketRateLimited(timestamps, now, maxMessages = MAX_MESSAGES_PER_WIN
   return false;
 }
 
-async function resolveAuthorizedRoom(roomId, userId) {
-  const targetRoomId = roomId || (await ensureGeneralRoom()).room._id.toString();
+async function resolveAuthorizedRoom(roomId, userId, activeWorkspaceId = null) {
+  const targetRoomId = roomId || (await ensureGeneralRoom(activeWorkspaceId)).room._id.toString();
   const { room } = await getRoomIfMember(targetRoomId, userId);
   return room;
 }
@@ -136,7 +136,7 @@ export function registerChatHandlers(
     try {
       const { room } = await getRoomIfMember(roomId, userId);
       // Match both _id and room so a user cannot edit a message in another room via roomId mismatch.
-      const msg = await Message.findOne({ _id: messageId, room: room._id });
+      const msg = await Message.findOne({ _id: messageId, workspace: room.workspace, room: room._id });
       if (!msg) {
         return respond({ ok: false, error: 'Message not found' });
       }
@@ -185,7 +185,7 @@ export function registerChatHandlers(
 
     try {
       const { room } = await getRoomIfMember(roomId, userId);
-      const msg = await Message.findOne({ _id: messageId, room: room._id });
+      const msg = await Message.findOne({ _id: messageId, workspace: room.workspace, room: room._id });
       if (!msg) {
         return respond({ ok: false, error: 'Message not found' });
       }
@@ -255,7 +255,7 @@ export function registerChatHandlers(
     try {
       const { room } = await getRoomIfMember(roomId, userId);
       const msg = await Message.findOne(
-        { _id: messageId, room: room._id },
+        { _id: messageId, workspace: room.workspace, room: room._id },
         { deletedAt: 1, reactions: 1 }
       ).lean();
 
@@ -276,35 +276,38 @@ export function registerChatHandlers(
       // locking so concurrent reactions from two users never overwrite each other.
       if (hasReacted) {
         await Message.updateOne(
-          { _id: messageId, room: room._id, 'reactions.emoji': emoji },
+          { _id: messageId, workspace: room.workspace, room: room._id, 'reactions.emoji': emoji },
           { $pull: { 'reactions.$.users': userObjectId } }
         );
         await Message.updateOne(
-          { _id: messageId, room: room._id },
+          { _id: messageId, workspace: room.workspace, room: room._id },
           { $pull: { reactions: { users: { $size: 0 } } } }
         );
       } else {
         const addRes = await Message.updateOne(
-          { _id: messageId, room: room._id, 'reactions.emoji': emoji },
+          { _id: messageId, workspace: room.workspace, room: room._id, 'reactions.emoji': emoji },
           { $addToSet: { 'reactions.$.users': userObjectId } }
         );
 
         if (addRes.matchedCount === 0) {
           const pushRes = await Message.updateOne(
-            { _id: messageId, room: room._id, 'reactions.emoji': { $ne: emoji } },
+            { _id: messageId, workspace: room.workspace, room: room._id, 'reactions.emoji': { $ne: emoji } },
             { $push: { reactions: { emoji, users: [userObjectId] } } }
           );
           // If a concurrent request just inserted this emoji entry, add our user to it.
           if (pushRes.modifiedCount === 0) {
             await Message.updateOne(
-              { _id: messageId, room: room._id, 'reactions.emoji': emoji },
+              { _id: messageId, workspace: room.workspace, room: room._id, 'reactions.emoji': emoji },
               { $addToSet: { 'reactions.$.users': userObjectId } }
             );
           }
         }
       }
 
-      const updated = await Message.findById(messageId, { reactions: 1 }).lean();
+      const updated = await Message.findOne(
+        { _id: messageId, workspace: room.workspace },
+        { reactions: 1 }
+      ).lean();
       const reactions = serializeReactions(updated?.reactions || []);
 
       io.to(`room:${room._id.toString()}`).emit('reaction:updated', {
@@ -403,11 +406,11 @@ export function registerChatHandlers(
 
       await Promise.all([
         Message.updateMany(
-          { _id: { $in: messageIds }, room: room._id, sender: { $ne: userId } },
+          { _id: { $in: messageIds }, workspace: room.workspace, room: room._id, sender: { $ne: userId } },
           { $addToSet: { readBy: userId } }
         ),
         Room.updateOne(
-          { _id: room._id, 'members.user': userId },
+          { _id: room._id, workspace: room.workspace, 'members.user': userId },
           { $set: { 'members.$.lastReadAt': new Date() } }
         ),
       ]);

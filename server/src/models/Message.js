@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+import { tenantPlugin } from '../services/tenantScope.js';
 
 export const ALLOWED_REACTIONS = ['👍', '❤️', '😂', '🎉', '😮', '🙏'];
 
@@ -38,6 +39,11 @@ const attachmentSchema = new mongoose.Schema(
 
 const messageSchema = new mongoose.Schema(
   {
+    workspace: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Workspace',
+      required: true,
+    },
     room: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Room',
@@ -130,11 +136,13 @@ const messageSchema = new mongoose.Schema(
   }
 );
 
+messageSchema.index({ workspace: 1, room: 1, createdAt: -1 });
 messageSchema.index({ room: 1, createdAt: -1 });
 messageSchema.index({ room: 1, updatedAt: -1 });
 messageSchema.index({ 'attachments.scanStatus': 1, 'attachments.scanClaimedAt': 1 });
 messageSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 messageSchema.index({ scheduledKey: 1 }, { unique: true, sparse: true });
+messageSchema.plugin(tenantPlugin);
 
 export function serializeReactions(reactions = []) {
   return reactions
@@ -173,6 +181,7 @@ export function serializeMessage(doc) {
 
   return {
     _id: doc._id.toString(),
+    workspace: doc.workspace ? doc.workspace.toString() : null,
     room: doc.room.toString(),
     sender: doc.sender.toString(),
     senderName: doc.senderName,

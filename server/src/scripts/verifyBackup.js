@@ -16,8 +16,8 @@ async function verifyBackup() {
   try {
     const [users, rooms, messages, sessions, audits] = await Promise.all([
       User.countDocuments({}),
-      Room.countDocuments({}),
-      Message.countDocuments({}),
+      Room.countDocuments({}, { bypassTenantScope: true }),
+      Message.countDocuments({}, { bypassTenantScope: true }),
       Session.countDocuments({}),
       AuditEvent.countDocuments({}),
     ]);
