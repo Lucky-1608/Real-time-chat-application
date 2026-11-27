@@ -361,6 +361,21 @@ export function generateOpenApiDocument() {
     responses: createdResp,
   });
 
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/workspaces/{id}/billing/checkout',
+    tags: ['Billing'],
+    security: [{ bearerAuth: [] }],
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/billing/webhook',
+    tags: ['Billing'],
+    responses: okResp,
+  });
+
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
     openapi: '3.0.3',

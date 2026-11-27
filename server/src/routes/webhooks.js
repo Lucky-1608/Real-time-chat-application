@@ -173,12 +173,13 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
   );
 
   // Authenticated webhook management routes
-  const mgmt = Router();
-  mgmt.use(requireAuth, resolveWorkspace);
-  if (rateLimiter) mgmt.use(rateLimiter);
+  const roomMgmtAuth = rateLimiter
+    ? [requireAuth, resolveWorkspace, rateLimiter]
+    : [requireAuth, resolveWorkspace];
 
-  mgmt.get(
+  router.get(
     '/rooms/:id/webhooks',
+    ...roomMgmtAuth,
     asyncHandler(async (req, res) => {
       const roomId = parseRoomId(req.params.id);
       const { room } = await getRoomIfMember(roomId, req.user.id, { workspaceId: req.workspaceId });
@@ -195,8 +196,9 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
     })
   );
 
-  mgmt.post(
+  router.post(
     '/rooms/:id/webhooks',
+    ...roomMgmtAuth,
     requireFeature('incomingWebhooks'),
     asyncHandler(async (req, res) => {
       const roomId = parseRoomId(req.params.id);
@@ -260,8 +262,9 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
     })
   );
 
-  mgmt.post(
+  router.post(
     '/rooms/:id/webhooks/:hookId/rotate',
+    ...roomMgmtAuth,
     requireFeature('incomingWebhooks'),
     asyncHandler(async (req, res) => {
       const roomId = parseRoomId(req.params.id);
@@ -290,8 +293,9 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
     })
   );
 
-  mgmt.delete(
+  router.delete(
     '/rooms/:id/webhooks/:hookId',
+    ...roomMgmtAuth,
     asyncHandler(async (req, res) => {
       const roomId = parseRoomId(req.params.id);
       if (!mongoose.isValidObjectId(req.params.hookId)) {
@@ -318,8 +322,9 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
     })
   );
 
-  mgmt.get(
+  router.get(
     '/rooms/:id/webhooks/:hookId/deliveries',
+    ...roomMgmtAuth,
     asyncHandler(async (req, res) => {
       const roomId = parseRoomId(req.params.id);
       if (!mongoose.isValidObjectId(req.params.hookId)) {
@@ -344,15 +349,12 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
     })
   );
 
-  router.use(mgmt);
-
   // Workspace-scoped outgoing webhook management (owner/admin only)
-  const outMgmt = Router();
-  outMgmt.use(requireAuth);
-  if (rateLimiter) outMgmt.use(rateLimiter);
+  const wsMgmtAuth = rateLimiter ? [requireAuth, rateLimiter] : [requireAuth];
 
-  outMgmt.post(
+  router.post(
     '/workspaces/:id/outgoing-webhooks',
+    ...wsMgmtAuth,
     requireFeature('outgoingWebhooks'),
     asyncHandler(async (req, res) => {
       if (!mongoose.isValidObjectId(req.params.id)) {
@@ -417,8 +419,9 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
     })
   );
 
-  outMgmt.get(
+  router.get(
     '/workspaces/:id/outgoing-webhooks',
+    ...wsMgmtAuth,
     asyncHandler(async (req, res) => {
       if (!mongoose.isValidObjectId(req.params.id)) {
         throw new AppError('Invalid workspace ID', 400);
@@ -442,8 +445,9 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
     })
   );
 
-  outMgmt.delete(
+  router.delete(
     '/workspaces/:id/outgoing-webhooks/:hookId',
+    ...wsMgmtAuth,
     asyncHandler(async (req, res) => {
       if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(req.params.hookId)) {
         throw new AppError('Invalid ID', 400);
@@ -473,6 +477,5 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
     })
   );
 
-  router.use(outMgmt);
   return router;
 }

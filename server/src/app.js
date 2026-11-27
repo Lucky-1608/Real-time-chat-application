@@ -24,6 +24,7 @@ import { createSearchRouter } from './routes/search.js';
 import { createAiRouter } from './routes/ai.js';
 import { createCallsRouter } from './routes/calls.js';
 import { createNotificationsRouter } from './routes/notifications.js';
+import { createBillingRouter } from './routes/billing.js';
 import { ALLOWED_GIF_HOSTS } from './services/providers/gifProvider.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
@@ -49,6 +50,7 @@ export function createApp({
   passwordService = defaultPasswordService,
   floodControl = defaultFloodControl,
   askLlmProvider,
+  paymentProvider,
 } = {}) {
   mongoose.set('strictQuery', true);
   const app = express();
@@ -87,7 +89,7 @@ export function createApp({
     })
   );
   app.use(
-    ['/api/v1/hooks', '/api/hooks'],
+    ['/api/v1/hooks', '/api/hooks', '/api/v1/billing/webhook', '/api/billing/webhook'],
     express.json({
       limit: '64kb',
       verify: (req, _res, buf) => {
@@ -189,6 +191,7 @@ export function createApp({
   const aiRouter = createAiRouter({ rateLimiter: sharedApiLimiter, askLlmProvider });
   const callsRouter = createCallsRouter({ rateLimiter: sharedApiLimiter });
   const notificationsRouter = createNotificationsRouter({ rateLimiter: sharedApiLimiter });
+  const billingRouter = createBillingRouter({ rateLimiter: sharedApiLimiter, paymentProvider });
 
   const openApiDoc = generateOpenApiDocument();
   const docsMiddlewares = env.NODE_ENV === 'production' ? [requireAuth, requireAdmin] : [];
@@ -210,6 +213,7 @@ export function createApp({
   app.use('/api/v1/ai', aiRouter);
   app.use('/api/v1/calls', callsRouter);
   app.use('/api/v1/notifications', notificationsRouter);
+  app.use('/api/v1', billingRouter);
 
   // Legacy /api/* aliases with Deprecation header for one release
   const deprecateLegacyApi = (_req, res, next) => {
@@ -232,6 +236,7 @@ export function createApp({
   app.use('/api/ai', deprecateLegacyApi, aiRouter);
   app.use('/api/calls', deprecateLegacyApi, callsRouter);
   app.use('/api/notifications', deprecateLegacyApi, notificationsRouter);
+  app.use('/api', deprecateLegacyApi, billingRouter);
 
   if (typeof registerRoutes === 'function') {
     registerRoutes(app);

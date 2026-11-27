@@ -18,6 +18,7 @@ export const FLAG_NAMES = [
   'aiAsk',
   'calls',
   'notifications',
+  'billing',
 ];
 
 const CACHE_TTL_MS = 5000;
@@ -70,6 +71,10 @@ function getEnvDefaults() {
       env.NODE_ENV === 'production'
         ? process.env.FLAG_NOTIFICATIONS === 'true'
         : process.env.FLAG_NOTIFICATIONS !== 'false',
+    billing:
+      env.NODE_ENV === 'production'
+        ? process.env.FLAG_BILLING === 'true'
+        : process.env.FLAG_BILLING !== 'false',
   };
 }
 
