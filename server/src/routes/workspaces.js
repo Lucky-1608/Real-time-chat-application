@@ -14,6 +14,11 @@ import { assertCan, WORKSPACE_ROLES } from '../services/permissions.js';
 import { requireFeature } from '../services/featureFlags.js';
 import { audit } from '../services/auditService.js';
 import {
+  addDemoContent,
+  removeDemoContent,
+  seedWorkspaceOnboarding,
+} from '../services/onboardingService.js';
+import {
   createWorkspaceInviteSchema,
   createWorkspaceSchema,
   objectIdSchema,
@@ -110,19 +115,7 @@ export function createWorkspacesRouter({ rateLimiter } = {}) {
         status: 'active',
       });
 
-      const general = await Room.create({
-        workspace: workspace._id,
-        name: 'General',
-        nameLower: 'general',
-        type: 'public',
-        createdBy: req.user.id,
-        members: [{ user: req.user.id, role: 'owner' }],
-      });
-
-      await Workspace.updateOne(
-        { _id: workspace._id },
-        { $set: { 'settings.defaultRoomIds': [general._id] } }
-      );
+      await seedWorkspaceOnboarding(workspace._id, req.user.id);
 
       await audit('workspace.created', {
         actor: req.user.id,
@@ -588,6 +581,52 @@ export function createWorkspacesRouter({ rateLimiter } = {}) {
         },
         role: invite.role || 'member',
       });
+    })
+  );
+
+  // POST /api/v1/workspaces/:id/demo — seed #demo-playground room & sample messages
+  router.post(
+    '/:id/demo',
+    requireFeature('onboarding'),
+    asyncHandler(async (req, res) => {
+      const { workspace, membership } = await requireWorkspaceMembership(req.params.id, req.user.id);
+      assertCan(req.user, 'workspace.rooms.create', { workspaceRole: membership.role });
+
+      const { room, messageCount } = await addDemoContent(workspace._id, req.user.id);
+      await audit('workspace.demo_added', {
+        actor: req.user.id,
+        targetType: 'Workspace',
+        targetId: workspace._id.toString(),
+        metadata: { roomId: room._id.toString() },
+        ip: req.ip,
+      });
+
+      res.status(201).json({
+        room: { _id: room._id.toString(), name: room.name, type: room.type },
+        messageCount,
+      });
+    })
+  );
+
+  // DELETE /api/v1/workspaces/:id/demo — remove #demo-playground room & messages in one click
+  router.delete(
+    '/:id/demo',
+    requireFeature('onboarding'),
+    asyncHandler(async (req, res) => {
+      const { workspace, membership } = await requireWorkspaceMembership(req.params.id, req.user.id);
+      assertCan(req.user, 'workspace.rooms.create', { workspaceRole: membership.role });
+
+      const { removed } = await removeDemoContent(workspace._id);
+      if (removed) {
+        await audit('workspace.demo_removed', {
+          actor: req.user.id,
+          targetType: 'Workspace',
+          targetId: workspace._id.toString(),
+          ip: req.ip,
+        });
+      }
+
+      res.status(200).json({ removed });
     })
   );
 

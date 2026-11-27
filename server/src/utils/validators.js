@@ -317,3 +317,13 @@ export const createWorkspaceInviteSchema = z.object({
 export const transferWorkspaceSchema = z.object({
   targetUserId: objectIdSchema,
 });
+
+export const onboardingUpdateSchema = z.object({
+  tourCompleted: z.boolean().optional(),
+  tourSkipped: z.boolean().optional(),
+  tourStep: z.number().int().min(0).max(10).optional(),
+  completedSteps: z
+    .array(z.enum(['create_room', 'send_message', 'invite_someone', 'try_slash_command']))
+    .max(10)
+    .optional(),
+});

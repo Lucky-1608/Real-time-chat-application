@@ -48,6 +48,9 @@ export function useChat() {
 
   const [workspaces, setWorkspaces] = useState([]);
   const [activeWorkspaceId, setActiveWorkspaceIdState] = useState(null);
+  const [onboarding, setOnboarding] = useState(null);
+  const [tourOpen, setTourOpen] = useState(false);
+  const [demoLoading, setDemoLoading] = useState(false);
   const [rooms, setRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
   const [activeRoomId, setActiveRoomId] = useState(() => parseRoomIdFromUrl());
@@ -176,6 +179,93 @@ export function useChat() {
       setRoomsLoading(false);
     }
   }, [token, registerUsers, selectRoom]);
+
+  useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    async function loadOnboarding() {
+      try {
+        const data = await apiFetch('/api/v1/users/me/onboarding');
+        if (cancelled || !data?.onboarding) return;
+        setOnboarding(data.onboarding);
+        if (!data.onboarding.tourCompleted && !data.onboarding.tourSkipped) {
+          setTourOpen(true);
+        }
+      } catch {
+        // Non-fatal
+      }
+    }
+    loadOnboarding();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  const updateOnboarding = useCallback(async (patch) => {
+    try {
+      const data = await apiFetch('/api/v1/users/me/onboarding', {
+        method: 'PATCH',
+        body: JSON.stringify(patch),
+      });
+      if (data?.onboarding) {
+        setOnboarding(data.onboarding);
+      }
+    } catch {
+      // Non-fatal
+    }
+  }, []);
+
+  const setTourStep = useCallback(
+    async (nextStep, completedStepKey = null) => {
+      const completedSteps = completedStepKey
+        ? [...new Set([...(onboarding?.completedSteps || []), completedStepKey])]
+        : onboarding?.completedSteps || [];
+      setOnboarding((prev) => ({ ...(prev || {}), tourStep: nextStep, completedSteps }));
+      await updateOnboarding({ tourStep: nextStep, completedSteps });
+    },
+    [onboarding, updateOnboarding]
+  );
+
+  const completeTour = useCallback(async () => {
+    setTourOpen(false);
+    await updateOnboarding({ tourCompleted: true });
+  }, [updateOnboarding]);
+
+  const skipTour = useCallback(async () => {
+    setTourOpen(false);
+    await updateOnboarding({ tourSkipped: true });
+  }, [updateOnboarding]);
+
+  const reopenTour = useCallback(() => {
+    setTourOpen(true);
+  }, []);
+
+  const addDemoContent = useCallback(async () => {
+    const wsId = activeWorkspaceRef.current?._id;
+    if (!wsId) return;
+    setDemoLoading(true);
+    try {
+      const data = await apiFetch(`/api/v1/workspaces/${wsId}/demo`, { method: 'POST' });
+      await refreshRooms();
+      if (data?.room?._id) {
+        selectRoom(data.room._id);
+      }
+    } finally {
+      setDemoLoading(false);
+    }
+  }, [refreshRooms, selectRoom]);
+
+  const removeDemoContent = useCallback(async () => {
+    const wsId = activeWorkspaceRef.current?._id;
+    if (!wsId) return;
+    setDemoLoading(true);
+    try {
+      await apiFetch(`/api/v1/workspaces/${wsId}/demo`, { method: 'DELETE' });
+      await refreshRooms();
+    } finally {
+      setDemoLoading(false);
+    }
+  }, [refreshRooms]);
 
   useEffect(() => {
     if (!token) return;
@@ -1075,6 +1165,15 @@ export function useChat() {
     activeWorkspace,
     switchWorkspace,
     createWorkspace,
+    onboarding,
+    tourOpen,
+    demoLoading,
+    setTourStep,
+    completeTour,
+    skipTour,
+    reopenTour,
+    addDemoContent,
+    removeDemoContent,
     rooms,
     roomsLoading,
     activeRoomId,

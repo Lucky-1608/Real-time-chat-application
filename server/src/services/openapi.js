@@ -13,6 +13,7 @@ import {
   loginSchema,
   moderationActionSchema,
   notificationLevelSchema,
+  onboardingUpdateSchema,
   presignUploadSchema,
   registerSchema,
   roomSummarySchema,
@@ -251,6 +252,31 @@ export function generateOpenApiDocument() {
   registry.registerPath({
     method: 'post',
     path: '/api/v1/workspaces/invites/{token}/redeem',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/users/me/onboarding',
+    tags: ['Users'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(onboardingUpdateSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/workspaces/{id}/demo',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'delete',
+    path: '/api/v1/workspaces/{id}/demo',
     tags: ['Workspaces'],
     security: [{ bearerAuth: [] }],
     responses: okResp,

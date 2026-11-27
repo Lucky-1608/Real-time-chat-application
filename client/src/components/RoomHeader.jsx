@@ -21,6 +21,7 @@ export default function RoomHeader({
   summaryLoading = false,
   onOpenSecurity,
   onOpenAdmin,
+  onOpenTour,
   onLogout,
 }) {
   const { t, i18n } = useTranslation();
@@ -154,6 +155,17 @@ export default function RoomHeader({
         >
           {t('security')}
         </button>
+
+        {onOpenTour && (
+          <button
+            type="button"
+            className={styles.actionBtn}
+            onClick={onOpenTour}
+            title="Open getting started tour"
+          >
+            Help
+          </button>
+        )}
 
         {currentUser?.globalRole === 'admin' && (
           <button

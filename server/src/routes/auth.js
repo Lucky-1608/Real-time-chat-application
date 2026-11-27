@@ -154,9 +154,9 @@ export function createAuthRouter({ rateLimiter, passwordService = defaultPasswor
 
       const user = await User.findOne({ usernameLower });
 
-      if (!user) {
+      if (!user || user.isSystem) {
         // Constant-time defense: run a full argon2 verification against a dummy hash
-        // so response timing does not reveal whether a username exists.
+        // so response timing does not reveal whether a username exists (or is a system bot).
         await passwordService.verifyDummyPassword(password);
         await audit('auth.login.failure', {
           targetType: 'user',

@@ -15,6 +15,7 @@ import BrowseRoomsModal from './BrowseRoomsModal.jsx';
 import InviteMembersModal from './InviteMembersModal.jsx';
 import SecuritySettingsModal from './SecuritySettingsModal.jsx';
 import AdminDashboardModal from './AdminDashboardModal.jsx';
+import OnboardingTour from './OnboardingTour.jsx';
 import styles from './ChatWindow.module.css';
 
 export default function ChatWindow() {
@@ -28,6 +29,15 @@ export default function ChatWindow() {
     activeWorkspace,
     switchWorkspace,
     createWorkspace,
+    onboarding,
+    tourOpen,
+    demoLoading,
+    setTourStep,
+    completeTour,
+    skipTour,
+    reopenTour,
+    addDemoContent,
+    removeDemoContent,
     rooms,
     activeRoomId,
     activeRoom,
@@ -134,6 +144,7 @@ export default function ChatWindow() {
             summaryLoading={summaryLoading}
             onOpenSecurity={() => setActiveModal('security-settings')}
             onOpenAdmin={() => setActiveModal('admin-dashboard')}
+            onOpenTour={reopenTour}
             onLogout={logout}
           />
 
@@ -238,6 +249,18 @@ export default function ChatWindow() {
       <SecuritySettingsModal
         isOpen={activeModal === 'security-settings'}
         onClose={() => setActiveModal(null)}
+      />
+      <OnboardingTour
+        isOpen={tourOpen}
+        onboarding={onboarding}
+        hasDemoRoom={rooms.some((r) => r.name?.toLowerCase() === 'demo-playground')}
+        demoLoading={demoLoading}
+        onStepChange={setTourStep}
+        onComplete={completeTour}
+        onSkip={skipTour}
+        onOpenCreateRoom={() => setActiveModal('create-room')}
+        onAddDemoContent={addDemoContent}
+        onRemoveDemoContent={removeDemoContent}
       />
       <AdminDashboardModal
         isOpen={activeModal === 'admin-dashboard'}

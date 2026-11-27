@@ -10,7 +10,12 @@ import { resolveWorkspace } from '../middleware/workspace.js';
 import { assertCan } from '../services/permissions.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { objectIdSchema, userSearchQuerySchema, userStatusSchema } from '../utils/validators.js';
+import {
+  objectIdSchema,
+  onboardingUpdateSchema,
+  userSearchQuerySchema,
+  userStatusSchema,
+} from '../utils/validators.js';
 
 function escapeRegex(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -246,6 +251,62 @@ export function createUsersRouter({ rateLimiter } = {}) {
         customStatus: user.customStatus,
         dnd: user.dnd,
         globalMute: Boolean(user.globalMute),
+      });
+    })
+  );
+
+  // GET /api/v1/users/me/onboarding — get persisted onboarding tour progress
+  router.get(
+    '/me/onboarding',
+    asyncHandler(async (req, res) => {
+      const user = await User.findById(req.user.id, { onboarding: 1 }).lean();
+      res.status(200).json({
+        onboarding: {
+          tourCompleted: Boolean(user?.onboarding?.tourCompleted),
+          tourSkipped: Boolean(user?.onboarding?.tourSkipped),
+          tourStep: user?.onboarding?.tourStep || 0,
+          completedSteps: user?.onboarding?.completedSteps || [],
+        },
+      });
+    })
+  );
+
+  // PATCH /api/v1/users/me/onboarding — update onboarding tour progress
+  router.patch(
+    '/me/onboarding',
+    asyncHandler(async (req, res) => {
+      const parsed = onboardingUpdateSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid onboarding payload', 400);
+      }
+
+      const $set = {};
+      if (parsed.data.tourCompleted !== undefined) {
+        $set['onboarding.tourCompleted'] = parsed.data.tourCompleted;
+      }
+      if (parsed.data.tourSkipped !== undefined) {
+        $set['onboarding.tourSkipped'] = parsed.data.tourSkipped;
+      }
+      if (parsed.data.tourStep !== undefined) {
+        $set['onboarding.tourStep'] = parsed.data.tourStep;
+      }
+      if (parsed.data.completedSteps !== undefined) {
+        $set['onboarding.completedSteps'] = [...new Set(parsed.data.completedSteps)];
+      }
+
+      const user = await User.findByIdAndUpdate(
+        req.user.id,
+        { $set },
+        { new: true, select: { onboarding: 1 } }
+      ).lean();
+
+      res.status(200).json({
+        onboarding: {
+          tourCompleted: Boolean(user?.onboarding?.tourCompleted),
+          tourSkipped: Boolean(user?.onboarding?.tourSkipped),
+          tourStep: user?.onboarding?.tourStep || 0,
+          completedSteps: user?.onboarding?.completedSteps || [],
+        },
       });
     })
   );

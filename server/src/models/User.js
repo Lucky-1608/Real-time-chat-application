@@ -101,6 +101,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isSystem: {
+      type: Boolean,
+      default: false,
+    },
+    onboarding: {
+      tourCompleted: { type: Boolean, default: false },
+      tourSkipped: { type: Boolean, default: false },
+      tourStep: { type: Number, default: 0, min: 0, max: 10 },
+      completedSteps: { type: [String], default: [] },
+    },
   },
   {
     timestamps: true,
