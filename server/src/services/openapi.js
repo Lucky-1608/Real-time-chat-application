@@ -345,6 +345,14 @@ export function generateOpenApiDocument() {
     responses: okResp,
   });
 
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/calls/ice-servers',
+    tags: ['Calls'],
+    security: [{ bearerAuth: [] }],
+    responses: okResp,
+  });
+
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
     openapi: '3.0.3',

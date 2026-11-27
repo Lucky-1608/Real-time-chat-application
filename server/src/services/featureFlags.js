@@ -16,6 +16,7 @@ export const FLAG_NAMES = [
   'outgoingWebhooks',
   'semanticSearch',
   'aiAsk',
+  'calls',
 ];
 
 const CACHE_TTL_MS = 5000;
@@ -60,6 +61,10 @@ function getEnvDefaults() {
       env.NODE_ENV === 'production'
         ? process.env.FLAG_AI_ASK === 'true'
         : process.env.FLAG_AI_ASK !== 'false',
+    calls:
+      env.NODE_ENV === 'production'
+        ? process.env.FLAG_CALLS === 'true'
+        : process.env.FLAG_CALLS !== 'false',
   };
 }
 

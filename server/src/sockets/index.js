@@ -9,6 +9,7 @@ import { ensureDefaultWorkspace } from '../services/workspaceMigration.js';
 import { isSessionActive } from '../services/sessionService.js';
 import { activeSocketsGauge, socketEventsCounter } from '../services/metricsService.js';
 import { registerChatHandlers } from './chatHandlers.js';
+import { registerCallHandlers } from './callHandlers.js';
 import { createPresenceTracker } from './presence.js';
 
 const AUTH_EXPIRED_GRACE_MS = 30_000;
@@ -30,6 +31,11 @@ const ALLOWED_SOCKET_EVENTS = new Set([
   'typing:stop',
   'room:subscribe',
   'workspace:switch',
+  'call:join',
+  'call:leave',
+  'call:offer',
+  'call:answer',
+  'call:ice',
   'auth:refresh',
   'test:ping',
 ]);
@@ -78,6 +84,7 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
   });
 
   const presence = createPresenceTracker();
+  const callRooms = new Map();
   const socketsByUser = new Map();
   const socketsByIp = new Map();
 
@@ -332,6 +339,7 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
     });
 
     registerChatHandlers(io, socket, presence, { storageService, floodControl });
+    registerCallHandlers(io, socket, callRooms);
 
     socket.on('disconnecting', () => {
       for (const channel of socket.rooms) {

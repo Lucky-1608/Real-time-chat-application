@@ -23,6 +23,8 @@ export default function RoomHeader({
   onOpenAdmin,
   onOpenTour,
   onOpenWebhooks,
+  onStartCall,
+  inCall = false,
   onLogout,
 }) {
   const { t, i18n } = useTranslation();
@@ -115,6 +117,17 @@ export default function RoomHeader({
             onClick={() => onLeaveRoom(room._id)}
           >
             Leave
+          </button>
+        )}
+
+        {room && onStartCall && (
+          <button
+            type="button"
+            className={styles.actionBtn}
+            onClick={onStartCall}
+            title={inCall ? 'Leave voice/video call' : 'Join voice/video call'}
+          >
+            {inCall ? 'Leave Call' : 'Call'}
           </button>
         )}
 

@@ -1311,6 +1311,23 @@
           }
         }
       }
+    },
+    "/api/v1/calls/ice-servers": {
+      "get": {
+        "tags": [
+          "Calls"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
     }
   }
 }

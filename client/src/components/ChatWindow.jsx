@@ -24,6 +24,7 @@ export default function ChatWindow() {
   const [roomsDrawerOpen, setRoomsDrawerOpen] = useState(false);
   const [usersDrawerOpen, setUsersDrawerOpen] = useState(false);
   const [activeModal, setActiveModal] = useState(null);
+  const [inCall, setInCall] = useState(false);
 
   const {
     workspaces,
@@ -150,6 +151,8 @@ export default function ChatWindow() {
             onOpenAdmin={() => setActiveModal('admin-dashboard')}
             onOpenTour={reopenTour}
             onOpenWebhooks={() => setActiveModal('webhooks')}
+            onStartCall={() => setInCall((prev) => !prev)}
+            inCall={inCall}
             onLogout={logout}
           />
 
@@ -171,6 +174,39 @@ export default function ChatWindow() {
                   ? '24 hours'
                   : '7 days'}
               .
+            </div>
+          )}
+
+          {inCall && activeRoom && (
+            <div
+              role="region"
+              aria-label="Active call"
+              style={{
+                padding: '0.45rem 1rem',
+                background: '#0f172a',
+                color: '#f8fafc',
+                borderBottom: '1px solid #334155',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                fontSize: '0.85rem',
+              }}
+            >
+              <span>Voice/Video Call connected in {roomLabel}</span>
+              <button
+                type="button"
+                onClick={() => setInCall(false)}
+                style={{
+                  background: '#991b1b',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '6px',
+                  padding: '0.25rem 0.65rem',
+                  cursor: 'pointer',
+                }}
+              >
+                End Call
+              </button>
             </div>
           )}
 
