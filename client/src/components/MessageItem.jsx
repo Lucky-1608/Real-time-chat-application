@@ -124,7 +124,27 @@ export default function MessageItem({
         isGrouped ? styles.grouped : styles.firstInGroup
       }`}
     >
-      {!isOwn && !isGrouped && <span className={styles.sender}>{senderName}</span>}
+      {!isOwn && !isGrouped && (
+        <span className={styles.sender}>
+          {senderName}
+          {message.isBot && (
+            <span
+              style={{
+                marginLeft: '0.35rem',
+                padding: '0.05rem 0.3rem',
+                fontSize: '0.65rem',
+                fontWeight: 700,
+                borderRadius: '4px',
+                background: '#0369a1',
+                color: '#ffffff',
+                verticalAlign: 'middle',
+              }}
+            >
+              BOT
+            </span>
+          )}
+        </span>
+      )}
 
       <div className={styles.bubbleWrap}>
         {!isDeleted && isConfirmed && !isEditing && (

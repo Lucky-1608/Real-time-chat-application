@@ -18,6 +18,8 @@ import { createAdminRouter } from './routes/admin.js';
 import { createReportsRouter } from './routes/reports.js';
 import { createAccountRouter } from './routes/account.js';
 import { createWorkspacesRouter } from './routes/workspaces.js';
+import { createBotsRouter } from './routes/bots.js';
+import { ALLOWED_GIF_HOSTS } from './services/providers/gifProvider.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
 import { defaultPasswordService } from './services/passwordService.js';
@@ -62,6 +64,7 @@ export function createApp({
       contentSecurityPolicy: {
         directives: {
           defaultSrc: ["'none'"],
+          imgSrc: ["'self'", 'data:', ...ALLOWED_GIF_HOSTS.map((h) => `https://${h}`)],
           frameAncestors: ["'none'"],
         },
       },
@@ -74,7 +77,7 @@ export function createApp({
     cors({
       origin: env.CLIENT_URL,
       credentials: true,
-      allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'X-Requested-With', 'X-Workspace-Id'],
     })
   );
   // Cap JSON body size early to mitigate payload-flooding DoS attacks.
@@ -165,6 +168,7 @@ export function createApp({
   });
   const messagesRouter = createMessagesRouter();
   const workspacesRouter = createWorkspacesRouter({ rateLimiter: sharedApiLimiter });
+  const botsRouter = createBotsRouter({ rateLimiter: sharedApiLimiter });
 
   const openApiDoc = generateOpenApiDocument();
   const docsMiddlewares = env.NODE_ENV === 'production' ? [requireAuth, requireAdmin] : [];
@@ -180,6 +184,7 @@ export function createApp({
   app.use('/api/v1/reports', reportsRouter);
   app.use('/api/v1/account', accountRouter);
   app.use('/api/v1/messages', messagesRouter);
+  app.use('/api/v1', botsRouter);
 
   // Legacy /api/* aliases with Deprecation header for one release
   const deprecateLegacyApi = (_req, res, next) => {
@@ -196,6 +201,7 @@ export function createApp({
   app.use('/api/reports', deprecateLegacyApi, reportsRouter);
   app.use('/api/account', deprecateLegacyApi, accountRouter);
   app.use('/api/messages', deprecateLegacyApi, messagesRouter);
+  app.use('/api', deprecateLegacyApi, botsRouter);
 
   if (typeof registerRoutes === 'function') {
     registerRoutes(app);

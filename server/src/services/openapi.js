@@ -282,6 +282,30 @@ export function generateOpenApiDocument() {
     responses: okResp,
   });
 
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/commands',
+    tags: ['Platform'],
+    security: [{ bearerAuth: [] }],
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/workspaces/{id}/bots',
+    tags: ['Platform'],
+    security: [{ bearerAuth: [] }],
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/bots/messages',
+    tags: ['Platform'],
+    security: [{ bearerAuth: [] }],
+    responses: createdResp,
+  });
+
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
     openapi: '3.0.3',

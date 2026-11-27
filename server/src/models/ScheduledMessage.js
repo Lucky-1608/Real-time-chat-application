@@ -17,6 +17,10 @@ const scheduledMessageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    isBot: {
+      type: Boolean,
+      default: false,
+    },
     text: {
       type: String,
       required: true,

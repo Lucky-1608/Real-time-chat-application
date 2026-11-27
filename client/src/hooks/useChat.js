@@ -51,6 +51,8 @@ export function useChat() {
   const [onboarding, setOnboarding] = useState(null);
   const [tourOpen, setTourOpen] = useState(false);
   const [demoLoading, setDemoLoading] = useState(false);
+  const [availableCommands, setAvailableCommands] = useState([]);
+  const [ephemeralByRoom, setEphemeralByRoom] = useState({});
   const [rooms, setRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
   const [activeRoomId, setActiveRoomId] = useState(() => parseRoomIdFromUrl());
@@ -120,6 +122,32 @@ export function useChat() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    if (!token || !activeRoomId) return;
+    let cancelled = false;
+    apiFetch(`/api/v1/commands?roomId=${encodeURIComponent(activeRoomId)}`)
+      .then((data) => {
+        if (!cancelled && Array.isArray(data?.commands)) {
+          setAvailableCommands(data.commands);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [token, activeRoomId]);
+
+  const dismissEphemeral = useCallback(
+    (id) => {
+      if (!activeRoomId) return;
+      setEphemeralByRoom((prev) => ({
+        ...prev,
+        [activeRoomId]: (prev[activeRoomId] || []).filter((e) => e.id !== id),
+      }));
+    },
+    [activeRoomId]
+  );
 
   // Sync activeRoomId with browser back/forward navigation.
   useEffect(() => {
@@ -735,6 +763,14 @@ export function useChat() {
       });
     };
 
+    const handleEphemeralMessage = (payload) => {
+      if (!payload?.roomId) return;
+      setEphemeralByRoom((prev) => ({
+        ...prev,
+        [payload.roomId]: [...(prev[payload.roomId] || []).slice(-10), payload],
+      }));
+    };
+
     socket.on('connect', handleConnect);
     socket.on('disconnect', handleDisconnect);
     socket.io.on('reconnect_attempt', handleReconnectAttempt);
@@ -760,6 +796,7 @@ export function useChat() {
     socket.on('user:status_updated', handleUserStatusUpdated);
     socket.on('room:updated', handleRoomUpdated);
     socket.on('poll:updated', handlePollUpdated);
+    socket.on('ephemeral:message', handleEphemeralMessage);
 
     return () => {
       socket.io.off('reconnect_attempt', handleReconnectAttempt);
@@ -1174,6 +1211,9 @@ export function useChat() {
     reopenTour,
     addDemoContent,
     removeDemoContent,
+    availableCommands,
+    ephemeralMessages: ephemeralByRoom[activeRoomId] || [],
+    dismissEphemeral,
     rooms,
     roomsLoading,
     activeRoomId,

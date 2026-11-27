@@ -56,6 +56,7 @@ export function createSchedulerService({
         room,
         userId: job.sender.toString(),
         username: job.senderName,
+        isBot: Boolean(job.isBot),
         text: job.text,
         scheduledKey: job.idempotencyKey,
         io,

@@ -95,6 +95,16 @@ const roomSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
     },
+    topic: {
+      type: String,
+      trim: true,
+      maxlength: 200,
+      default: '',
+    },
+    botIds: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Bot' }],
+      default: [],
+    },
     // Room-level disappearing message TTL in seconds (0 = off, 1h, 24h, 7d).
     // Changing this affects only NEW messages created after the change.
     disappearingTtlSeconds: {

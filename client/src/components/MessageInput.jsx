@@ -49,6 +49,7 @@ export default function MessageInput({
   onStopTyping,
   disabled,
   roomLabel = '#General',
+  availableCommands = [],
 }) {
   const [text, setText] = useState('');
   const [uploads, setUploads] = useState([]);
@@ -271,6 +272,55 @@ export default function MessageInput({
             </div>
           ))}
         </div>
+      )}
+
+      {text.startsWith('/') && !text.includes(' ') && availableCommands.length > 0 && (
+        (() => {
+          const prefix = text.slice(1).toLowerCase();
+          const matches = availableCommands.filter((c) => c.name.startsWith(prefix));
+          if (matches.length === 0) return null;
+          return (
+            <div
+              role="listbox"
+              aria-label="Slash commands"
+              style={{
+                background: '#0f172a',
+                border: '1px solid #334155',
+                borderRadius: '8px',
+                marginBottom: '0.4rem',
+                padding: '0.25rem',
+                maxHeight: '180px',
+                overflowY: 'auto',
+              }}
+            >
+              {matches.map((cmd) => (
+                <button
+                  key={cmd.name}
+                  type="button"
+                  role="option"
+                  aria-selected="false"
+                  onClick={() => setText(`/${cmd.name} `)}
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    width: '100%',
+                    textAlign: 'left',
+                    background: 'transparent',
+                    color: '#f8fafc',
+                    border: 'none',
+                    padding: '0.35rem 0.5rem',
+                    borderRadius: '4px',
+                    cursor: 'pointer',
+                    fontSize: '0.8rem',
+                  }}
+                >
+                  <strong>{cmd.usage}</strong>
+                  <span style={{ color: '#94a3b8', marginLeft: '0.75rem' }}>{cmd.description}</span>
+                </button>
+              ))}
+            </div>
+          );
+        })()
       )}
 
       <form className={styles.form} onSubmit={handleSubmit}>

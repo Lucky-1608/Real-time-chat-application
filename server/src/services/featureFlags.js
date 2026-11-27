@@ -10,6 +10,8 @@ export const FLAG_NAMES = [
   'aiSummaries',
   'workspaces',
   'onboarding',
+  'slashCommands',
+  'bots',
 ];
 
 const CACHE_TTL_MS = 5000;
@@ -30,6 +32,14 @@ function getEnvDefaults() {
       env.NODE_ENV === 'production'
         ? process.env.FLAG_ONBOARDING === 'true'
         : process.env.FLAG_ONBOARDING !== 'false',
+    slashCommands:
+      env.NODE_ENV === 'production'
+        ? process.env.FLAG_SLASH_COMMANDS === 'true'
+        : process.env.FLAG_SLASH_COMMANDS !== 'false',
+    bots:
+      env.NODE_ENV === 'production'
+        ? process.env.FLAG_BOTS === 'true'
+        : process.env.FLAG_BOTS !== 'false',
   };
 }
 

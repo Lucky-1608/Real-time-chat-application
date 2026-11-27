@@ -59,6 +59,10 @@ const messageSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    isBot: {
+      type: Boolean,
+      default: false,
+    },
     // Trade-off: originalText is intentionally not stored; soft-deleted messages
     // clear text to "" so deleted content is never retained or leaked to clients.
     text: {
@@ -185,6 +189,7 @@ export function serializeMessage(doc) {
     room: doc.room.toString(),
     sender: doc.sender.toString(),
     senderName: doc.senderName,
+    isBot: Boolean(doc.isBot),
     kind: doc.kind || 'text',
     text: isDeleted ? '' : doc.text,
     poll: isDeleted ? null : serializePoll(doc.poll),

@@ -38,6 +38,9 @@ export default function ChatWindow() {
     reopenTour,
     addDemoContent,
     removeDemoContent,
+    availableCommands,
+    ephemeralMessages,
+    dismissEphemeral,
     rooms,
     activeRoomId,
     activeRoom,
@@ -192,6 +195,9 @@ export default function ChatWindow() {
               onDelete={deleteMessage}
               onToggleReaction={toggleReaction}
               onMarkRead={markMessagesRead}
+              ephemeralMessages={ephemeralMessages}
+              onDismissEphemeral={dismissEphemeral}
+              onPickGif={(url) => sendMessage(url)}
             />
             <TypingIndicator typingUsers={typingUsers} />
             <MessageInput
@@ -201,6 +207,7 @@ export default function ChatWindow() {
               onStopTyping={stopTyping}
               disabled={!activeRoomId}
               roomLabel={roomLabel}
+              availableCommands={availableCommands}
             />
           </main>
         </div>

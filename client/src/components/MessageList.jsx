@@ -34,6 +34,9 @@ export default function MessageList({
   onDelete,
   onToggleReaction,
   onMarkRead,
+  ephemeralMessages = [],
+  onDismissEphemeral,
+  onPickGif,
 }) {
   const {
     containerRef,
@@ -261,6 +264,72 @@ export default function MessageList({
             );
           })
         )}
+
+        {ephemeralMessages.map((eph) => (
+          <div
+            key={eph.id}
+            role="status"
+            style={{
+              margin: '0.5rem 0',
+              padding: '0.65rem 0.85rem',
+              borderRadius: '8px',
+              background: eph.isError ? 'rgba(153, 27, 27, 0.25)' : 'rgba(15, 23, 42, 0.85)',
+              border: '1px solid #334155',
+              color: '#f8fafc',
+              fontSize: '0.85rem',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.25rem' }}>
+              <span style={{ fontSize: '0.72rem', color: '#7dd3fc', fontWeight: 600 }}>
+                Only visible to you (ephemeral)
+              </span>
+              {onDismissEphemeral && (
+                <button
+                  type="button"
+                  onClick={() => onDismissEphemeral(eph.id)}
+                  aria-label="Dismiss ephemeral message"
+                  style={{
+                    background: 'transparent',
+                    color: '#cbd5e1',
+                    border: 'none',
+                    cursor: 'pointer',
+                  }}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+            <div style={{ whiteSpace: 'pre-wrap' }}>{eph.text}</div>
+            {Array.isArray(eph.candidates) && eph.candidates.length > 0 && (
+              <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.5rem', flexWrap: 'wrap' }}>
+                {eph.candidates.map((gif) => (
+                  <button
+                    key={gif.id}
+                    type="button"
+                    onClick={() => {
+                      onPickGif?.(gif.url);
+                      onDismissEphemeral?.(eph.id);
+                    }}
+                    style={{
+                      padding: 0,
+                      border: '1px solid #475569',
+                      borderRadius: '6px',
+                      overflow: 'hidden',
+                      cursor: 'pointer',
+                      background: '#0f172a',
+                    }}
+                  >
+                    <img
+                      src={gif.previewUrl}
+                      alt={gif.title}
+                      style={{ display: 'block', height: '80px', width: 'auto' }}
+                    />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       {hasNewMessages && (

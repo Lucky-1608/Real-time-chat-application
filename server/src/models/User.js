@@ -105,6 +105,16 @@ const userSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+    isBot: {
+      type: Boolean,
+      default: false,
+    },
+    timezone: {
+      type: String,
+      trim: true,
+      maxlength: 64,
+      default: 'UTC',
+    },
     onboarding: {
       tourCompleted: { type: Boolean, default: false },
       tourSkipped: { type: Boolean, default: false },

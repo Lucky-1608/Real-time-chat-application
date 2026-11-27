@@ -14,6 +14,7 @@ export async function deliverMessage({
   room,
   userId,
   username,
+  isBot = false,
   text,
   attachments = [],
   mentions = [],
@@ -77,6 +78,7 @@ export async function deliverMessage({
       room: room._id,
       sender: userId,
       senderName: username,
+      isBot: Boolean(isBot),
       text,
       mentions: uniqueMentions,
       attachments: attachments.map((att) => ({ ...att, scanStatus: 'pending' })),
@@ -156,5 +158,5 @@ export async function deliverMessage({
     }
   }
 
-  return { ok: true, id: serialized._id };
+  return { ok: true, id: serialized._id, message: serialized };
 }

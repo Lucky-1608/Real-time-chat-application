@@ -17,6 +17,9 @@ import { deliverMessage } from '../services/messageService.js';
 import { defaultStorageService } from '../services/storage.js';
 import { defaultFloodControl } from '../services/floodControl.js';
 import { audit } from '../services/auditService.js';
+import { isFeatureEnabled } from '../services/featureFlags.js';
+import { registerBuiltInCommands } from '../services/commands/builtInCommands.js';
+import { executeSlashCommand } from '../services/commands/registry.js';
 
 const RATE_WINDOW_MS = 10_000;
 const MAX_MESSAGES_PER_WINDOW = 10;
@@ -47,6 +50,7 @@ export function registerChatHandlers(
   presence,
   { storageService = defaultStorageService, floodControl = defaultFloodControl } = {}
 ) {
+  registerBuiltInCommands();
   const sendTimestamps = [];
   const { id: userId, username } = socket.data.user;
 
@@ -78,6 +82,22 @@ export function registerChatHandlers(
     try {
       const room = await resolveAuthorizedRoom(roomId, userId);
       const roomIdStr = room._id.toString();
+
+      if (text.trim().startsWith('/') && (await isFeatureEnabled('slashCommands'))) {
+        const cmdRes = await executeSlashCommand({
+          text,
+          room,
+          userId,
+          username,
+          io,
+          presence,
+          storageService,
+          floodControl,
+        });
+        if (cmdRes) {
+          return respond(cmdRes);
+        }
+      }
 
       const spamCheck = floodControl.checkSpam({ userId, text });
       if (!spamCheck.ok) {
