@@ -13,6 +13,7 @@ export const FLAG_NAMES = [
   'slashCommands',
   'bots',
   'incomingWebhooks',
+  'outgoingWebhooks',
 ];
 
 const CACHE_TTL_MS = 5000;
@@ -45,6 +46,10 @@ function getEnvDefaults() {
       env.NODE_ENV === 'production'
         ? process.env.FLAG_INCOMING_WEBHOOKS === 'true'
         : process.env.FLAG_INCOMING_WEBHOOKS !== 'false',
+    outgoingWebhooks:
+      env.NODE_ENV === 'production'
+        ? process.env.FLAG_OUTGOING_WEBHOOKS === 'true'
+        : process.env.FLAG_OUTGOING_WEBHOOKS !== 'false',
   };
 }
 

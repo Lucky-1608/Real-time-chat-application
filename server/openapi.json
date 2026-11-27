@@ -1260,6 +1260,23 @@
           }
         }
       }
+    },
+    "/api/v1/workspaces/{id}/outgoing-webhooks": {
+      "post": {
+        "tags": [
+          "Webhooks"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
     }
   }
 }

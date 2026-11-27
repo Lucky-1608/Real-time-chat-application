@@ -321,6 +321,14 @@ export function generateOpenApiDocument() {
     responses: createdResp,
   });
 
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/workspaces/{id}/outgoing-webhooks',
+    tags: ['Webhooks'],
+    security: [{ bearerAuth: [] }],
+    responses: createdResp,
+  });
+
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
     openapi: '3.0.3',

@@ -4,26 +4,35 @@ import mongoose from 'mongoose';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import IncomingWebhook from '../models/IncomingWebhook.js';
+import OutgoingWebhook, { OUTGOING_WEBHOOK_EVENTS } from '../models/OutgoingWebhook.js';
 import WebhookDelivery from '../models/WebhookDelivery.js';
 import WebhookIdempotency from '../models/WebhookIdempotency.js';
+import WorkspaceMember from '../models/WorkspaceMember.js';
 import Room from '../models/Room.js';
 import User from '../models/User.js';
 import { requireAuth } from '../middleware/auth.js';
 import { resolveWorkspace } from '../middleware/workspace.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { can } from '../services/permissions.js';
+import { assertCan, can } from '../services/permissions.js';
 import { requireFeature } from '../services/featureFlags.js';
 import { audit } from '../services/auditService.js';
 import { encryptField } from '../services/cryptoService.js';
 import { getRoomIfMember, parseRoomId } from '../services/roomAccess.js';
 import { deliverMessage } from '../services/messageService.js';
 import { getWebhookFormatter } from '../services/webhooks/formatters/index.js';
+import { validateWebhookUrl } from '../services/security/ssrfGuard.js';
 import { objectIdSchema } from '../utils/validators.js';
 
 const createWebhookSchema = z.object({
   name: z.string().trim().min(2).max(40),
   formatter: z.enum(['generic', 'github']).optional().default('generic'),
+});
+
+const createOutgoingWebhookSchema = z.object({
+  url: z.string().trim().min(8).max(500),
+  roomId: objectIdSchema.nullable().optional().default(null),
+  events: z.array(z.enum(OUTGOING_WEBHOOK_EVENTS)).min(1).max(OUTGOING_WEBHOOK_EVENTS.length),
 });
 
 function hashToken(raw) {
@@ -336,5 +345,134 @@ export function createWebhooksRouter({ rateLimiter } = {}) {
   );
 
   router.use(mgmt);
+
+  // Workspace-scoped outgoing webhook management (owner/admin only)
+  const outMgmt = Router();
+  outMgmt.use(requireAuth);
+  if (rateLimiter) outMgmt.use(rateLimiter);
+
+  outMgmt.post(
+    '/workspaces/:id/outgoing-webhooks',
+    requireFeature('outgoingWebhooks'),
+    asyncHandler(async (req, res) => {
+      if (!mongoose.isValidObjectId(req.params.id)) {
+        throw new AppError('Invalid workspace ID', 400);
+      }
+      const membership = await WorkspaceMember.findOne({
+        workspace: req.params.id,
+        user: req.user.id,
+        status: 'active',
+      }).lean();
+      if (!membership) throw new AppError('Workspace not found', 404);
+      assertCan(req.user, 'workspace.settings', { workspaceRole: membership.role });
+
+      const parsed = createOutgoingWebhookSchema.safeParse(req.body || {});
+      if (!parsed.success) {
+        throw new AppError(parsed.error.issues[0]?.message || 'Invalid outgoing webhook payload', 400);
+      }
+
+      try {
+        await validateWebhookUrl(parsed.data.url);
+      } catch (err) {
+        throw new AppError(err.message || 'Blocked webhook URL', 400);
+      }
+
+      if (parsed.data.roomId) {
+        const roomExists = await Room.exists({
+          _id: parsed.data.roomId,
+          workspace: req.params.id,
+        });
+        if (!roomExists) throw new AppError('Room not found in this workspace', 404);
+      }
+
+      const rawSecret = `whsec_${crypto.randomBytes(24).toString('hex')}`;
+      const hook = await OutgoingWebhook.create({
+        workspace: req.params.id,
+        room: parsed.data.roomId || null,
+        url: parsed.data.url,
+        events: parsed.data.events,
+        signingSecretEnc: encryptField(rawSecret),
+        createdBy: req.user.id,
+      });
+
+      await audit('webhook.outgoing.created', {
+        actor: req.user.id,
+        targetType: 'OutgoingWebhook',
+        targetId: hook._id.toString(),
+        metadata: { workspaceId: req.params.id, events: hook.events },
+        ip: req.ip,
+      });
+
+      res.status(201).json({
+        webhook: {
+          _id: hook._id.toString(),
+          workspace: hook.workspace.toString(),
+          room: hook.room ? hook.room.toString() : null,
+          url: hook.url,
+          events: hook.events,
+          enabled: hook.enabled,
+        },
+        signingSecret: rawSecret,
+      });
+    })
+  );
+
+  outMgmt.get(
+    '/workspaces/:id/outgoing-webhooks',
+    asyncHandler(async (req, res) => {
+      if (!mongoose.isValidObjectId(req.params.id)) {
+        throw new AppError('Invalid workspace ID', 400);
+      }
+      const membership = await WorkspaceMember.findOne({
+        workspace: req.params.id,
+        user: req.user.id,
+        status: 'active',
+      }).lean();
+      if (!membership) throw new AppError('Workspace not found', 404);
+      assertCan(req.user, 'workspace.settings', { workspaceRole: membership.role });
+
+      const webhooks = await OutgoingWebhook.find(
+        { workspace: req.params.id },
+        { signingSecretEnc: 0 }
+      )
+        .sort({ createdAt: -1 })
+        .lean();
+
+      res.status(200).json({ webhooks });
+    })
+  );
+
+  outMgmt.delete(
+    '/workspaces/:id/outgoing-webhooks/:hookId',
+    asyncHandler(async (req, res) => {
+      if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(req.params.hookId)) {
+        throw new AppError('Invalid ID', 400);
+      }
+      const membership = await WorkspaceMember.findOne({
+        workspace: req.params.id,
+        user: req.user.id,
+        status: 'active',
+      }).lean();
+      if (!membership) throw new AppError('Workspace not found', 404);
+      assertCan(req.user, 'workspace.settings', { workspaceRole: membership.role });
+
+      const deleted = await OutgoingWebhook.findOneAndDelete({
+        _id: req.params.hookId,
+        workspace: req.params.id,
+      });
+      if (!deleted) throw new AppError('Outgoing webhook not found', 404);
+
+      await audit('webhook.outgoing.deleted', {
+        actor: req.user.id,
+        targetType: 'OutgoingWebhook',
+        targetId: deleted._id.toString(),
+        ip: req.ip,
+      });
+
+      res.status(200).json({ ok: true });
+    })
+  );
+
+  router.use(outMgmt);
   return router;
 }
