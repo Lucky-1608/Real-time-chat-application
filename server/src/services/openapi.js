@@ -353,6 +353,14 @@ export function generateOpenApiDocument() {
     responses: okResp,
   });
 
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/notifications/push/subscribe',
+    tags: ['Notifications'],
+    security: [{ bearerAuth: [] }],
+    responses: createdResp,
+  });
+
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
     openapi: '3.0.3',

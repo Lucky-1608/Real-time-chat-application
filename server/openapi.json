@@ -1328,6 +1328,23 @@
           }
         }
       }
+    },
+    "/api/v1/notifications/push/subscribe": {
+      "post": {
+        "tags": [
+          "Notifications"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Created"
+          }
+        }
+      }
     }
   }
 }

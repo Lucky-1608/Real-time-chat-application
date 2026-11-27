@@ -17,6 +17,7 @@ export const FLAG_NAMES = [
   'semanticSearch',
   'aiAsk',
   'calls',
+  'notifications',
 ];
 
 const CACHE_TTL_MS = 5000;
@@ -65,6 +66,10 @@ function getEnvDefaults() {
       env.NODE_ENV === 'production'
         ? process.env.FLAG_CALLS === 'true'
         : process.env.FLAG_CALLS !== 'false',
+    notifications:
+      env.NODE_ENV === 'production'
+        ? process.env.FLAG_NOTIFICATIONS === 'true'
+        : process.env.FLAG_NOTIFICATIONS !== 'false',
   };
 }
 

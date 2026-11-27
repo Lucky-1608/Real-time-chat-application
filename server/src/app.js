@@ -23,6 +23,7 @@ import { createWebhooksRouter } from './routes/webhooks.js';
 import { createSearchRouter } from './routes/search.js';
 import { createAiRouter } from './routes/ai.js';
 import { createCallsRouter } from './routes/calls.js';
+import { createNotificationsRouter } from './routes/notifications.js';
 import { ALLOWED_GIF_HOSTS } from './services/providers/gifProvider.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
@@ -187,6 +188,7 @@ export function createApp({
   const searchRouter = createSearchRouter({ rateLimiter: sharedApiLimiter });
   const aiRouter = createAiRouter({ rateLimiter: sharedApiLimiter, askLlmProvider });
   const callsRouter = createCallsRouter({ rateLimiter: sharedApiLimiter });
+  const notificationsRouter = createNotificationsRouter({ rateLimiter: sharedApiLimiter });
 
   const openApiDoc = generateOpenApiDocument();
   const docsMiddlewares = env.NODE_ENV === 'production' ? [requireAuth, requireAdmin] : [];
@@ -207,6 +209,7 @@ export function createApp({
   app.use('/api/v1/search', searchRouter);
   app.use('/api/v1/ai', aiRouter);
   app.use('/api/v1/calls', callsRouter);
+  app.use('/api/v1/notifications', notificationsRouter);
 
   // Legacy /api/* aliases with Deprecation header for one release
   const deprecateLegacyApi = (_req, res, next) => {
@@ -228,6 +231,7 @@ export function createApp({
   app.use('/api/search', deprecateLegacyApi, searchRouter);
   app.use('/api/ai', deprecateLegacyApi, aiRouter);
   app.use('/api/calls', deprecateLegacyApi, callsRouter);
+  app.use('/api/notifications', deprecateLegacyApi, notificationsRouter);
 
   if (typeof registerRoutes === 'function') {
     registerRoutes(app);
