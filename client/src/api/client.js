@@ -6,6 +6,7 @@ export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:4000')
 // Access token and CSRF token live strictly in memory (never localStorage).
 let inMemoryToken = null;
 let inMemoryCsrfToken = null;
+let inMemoryWorkspaceId = null;
 let onUnauthorizedHandler = null;
 let onTokenRefreshedHandler = null;
 let inFlightRefreshPromise = null;
@@ -38,6 +39,14 @@ export function setAccessToken(token) {
 
 export function getAccessToken() {
   return inMemoryToken;
+}
+
+export function setActiveWorkspaceId(workspaceId) {
+  inMemoryWorkspaceId = workspaceId || null;
+}
+
+export function getActiveWorkspaceId() {
+  return inMemoryWorkspaceId;
 }
 
 export function setUnauthorizedHandler(handler) {
@@ -108,6 +117,9 @@ export async function apiFetch(path, options = {}) {
 
   if (!skipAuth && inMemoryToken) {
     requestHeaders.Authorization = `Bearer ${inMemoryToken}`;
+  }
+  if (inMemoryWorkspaceId && !requestHeaders['X-Workspace-Id']) {
+    requestHeaders['X-Workspace-Id'] = inMemoryWorkspaceId;
   }
 
   const response = await fetch(`${API_URL}${versionedPath}`, {

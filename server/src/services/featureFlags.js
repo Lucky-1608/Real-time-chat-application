@@ -3,7 +3,7 @@ import env from '../config/env.js';
 import FeatureFlag from '../models/FeatureFlag.js';
 import { AppError } from '../middleware/errorHandler.js';
 
-export const FLAG_NAMES = ['scheduledMessages', 'polls', 'uploads', 'aiSummaries'];
+export const FLAG_NAMES = ['scheduledMessages', 'polls', 'uploads', 'aiSummaries', 'workspaces'];
 
 const CACHE_TTL_MS = 5000;
 let cachedFlags = null;
@@ -15,6 +15,10 @@ function getEnvDefaults() {
     polls: env.FLAG_POLLS !== 'false',
     uploads: env.FLAG_UPLOADS !== 'false',
     aiSummaries: env.FLAG_AI_SUMMARIES !== 'false',
+    workspaces:
+      env.NODE_ENV === 'production'
+        ? process.env.FLAG_WORKSPACES === 'true'
+        : process.env.FLAG_WORKSPACES !== 'false',
   };
 }
 

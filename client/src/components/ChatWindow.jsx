@@ -24,6 +24,10 @@ export default function ChatWindow() {
   const [activeModal, setActiveModal] = useState(null);
 
   const {
+    workspaces,
+    activeWorkspace,
+    switchWorkspace,
+    createWorkspace,
     rooms,
     activeRoomId,
     activeRoom,
@@ -95,6 +99,10 @@ export default function ChatWindow() {
 
       <div className={styles.workspace}>
         <RoomSidebar
+          workspaces={workspaces}
+          activeWorkspace={activeWorkspace}
+          onSwitchWorkspace={switchWorkspace}
+          onCreateWorkspace={createWorkspace}
           rooms={rooms}
           activeRoomId={activeRoomId}
           unreadByRoom={unreadByRoom}

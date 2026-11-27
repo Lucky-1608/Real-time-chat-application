@@ -74,6 +74,12 @@ export function createRoomsRouter({
   router.get(
     '/public',
     asyncHandler(async (req, res) => {
+      assertCan(
+        req.user,
+        'workspace.rooms.browse',
+        { workspaceRole: req.workspaceMember?.role },
+        'Guests cannot browse public rooms'
+      );
       const parsed = publicRoomsQuerySchema.safeParse(req.query);
       if (!parsed.success) {
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid query parameters', 400);
@@ -116,6 +122,12 @@ export function createRoomsRouter({
   router.post(
     '/',
     asyncHandler(async (req, res) => {
+      assertCan(
+        req.user,
+        'workspace.rooms.create',
+        { workspaceRole: req.workspaceMember?.role },
+        'Guests cannot create rooms'
+      );
       const parsed = createRoomSchema.safeParse(req.body);
       if (!parsed.success) {
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid room data', 400);
@@ -294,6 +306,12 @@ export function createRoomsRouter({
   router.post(
     '/:id/join',
     asyncHandler(async (req, res) => {
+      assertCan(
+        req.user,
+        'workspace.rooms.browse',
+        { workspaceRole: req.workspaceMember?.role },
+        'Guests cannot join public rooms'
+      );
       const roomId = parseRoomId(req.params.id);
       const room = await Room.findOne({ _id: roomId, workspace: req.workspaceId });
 

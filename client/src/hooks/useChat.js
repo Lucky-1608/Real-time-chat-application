@@ -1,14 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io } from 'socket.io-client';
-import { API_URL, apiFetch, getAccessToken } from '../api/client.js';
+import { API_URL, apiFetch, getAccessToken, setActiveWorkspaceId } from '../api/client.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const PAGE_SIZE = 50;
+const WS_ROOM_PATH_REGEX = /^\/w\/([^/]+)\/rooms\/([a-f0-9]{24})$/i;
 const ROOM_PATH_REGEX = /^\/rooms\/([a-f0-9]{24})$/i;
 
-function parseRoomIdFromUrl() {
+function parseRouteFromUrl() {
+  const wsMatch = window.location.pathname.match(WS_ROOM_PATH_REGEX);
+  if (wsMatch) {
+    return { workspaceSlug: wsMatch[1], roomId: wsMatch[2] };
+  }
   const match = window.location.pathname.match(ROOM_PATH_REGEX);
-  return match ? match[1] : null;
+  return { workspaceSlug: null, roomId: match ? match[1] : null };
+}
+
+function parseRoomIdFromUrl() {
+  return parseRouteFromUrl().roomId;
 }
 
 function mergeUniqueMessages(existing = [], incoming = []) {
@@ -37,9 +46,18 @@ export function useChat() {
   const socketRef = useRef(null);
   const hasConnectedOnceRef = useRef(false);
 
+  const [workspaces, setWorkspaces] = useState([]);
+  const [activeWorkspaceId, setActiveWorkspaceIdState] = useState(null);
   const [rooms, setRooms] = useState([]);
   const [roomsLoading, setRoomsLoading] = useState(true);
   const [activeRoomId, setActiveRoomId] = useState(() => parseRoomIdFromUrl());
+
+  const activeWorkspace = useMemo(
+    () => workspaces.find((w) => w._id === activeWorkspaceId) || workspaces[0] || null,
+    [workspaces, activeWorkspaceId]
+  );
+  const activeWorkspaceRef = useRef(activeWorkspace);
+  activeWorkspaceRef.current = activeWorkspace;
 
   const [messagesByRoom, setMessagesByRoom] = useState({});
   const [hasMoreByRoom, setHasMoreByRoom] = useState({});
@@ -89,7 +107,8 @@ export function useChat() {
   const selectRoom = useCallback((roomId, { replace = false } = {}) => {
     if (!roomId) return;
     setActiveRoomId(roomId);
-    const targetPath = `/rooms/${roomId}`;
+    const wsSlug = activeWorkspaceRef.current?.slug;
+    const targetPath = wsSlug ? `/w/${wsSlug}/rooms/${roomId}` : `/rooms/${roomId}`;
     if (window.location.pathname !== targetPath) {
       if (replace) {
         window.history.replaceState({ roomId }, '', targetPath);
@@ -159,8 +178,64 @@ export function useChat() {
   }, [token, registerUsers, selectRoom]);
 
   useEffect(() => {
+    if (!token) return;
+    let cancelled = false;
+    async function loadWorkspaces() {
+      try {
+        const data = await apiFetch('/api/v1/workspaces');
+        if (cancelled) return;
+        const list = data.workspaces || [];
+        setWorkspaces(list);
+        const { workspaceSlug } = parseRouteFromUrl();
+        const matched = workspaceSlug ? list.find((w) => w.slug === workspaceSlug) : null;
+        const chosen = matched || list[0] || null;
+        if (chosen) {
+          setActiveWorkspaceId(chosen._id);
+          setActiveWorkspaceIdState(chosen._id);
+        }
+      } catch {
+        // Fallback to Default workspace resolution on server
+      }
+    }
+    loadWorkspaces();
+    return () => {
+      cancelled = true;
+    };
+  }, [token]);
+
+  useEffect(() => {
     refreshRooms();
-  }, [refreshRooms]);
+  }, [refreshRooms, activeWorkspaceId]);
+
+  const switchWorkspace = useCallback(
+    async (workspaceId) => {
+      if (!workspaceId || workspaceId === activeWorkspaceId) return;
+      setActiveWorkspaceId(workspaceId);
+      setActiveWorkspaceIdState(workspaceId);
+      setActiveRoomId(null);
+      setMessagesByRoom({});
+      setOnlineUsers([]);
+      if (socketRef.current) {
+        socketRef.current.emit('workspace:switch', { workspaceId }, () => {});
+      }
+    },
+    [activeWorkspaceId]
+  );
+
+  const createWorkspace = useCallback(
+    async (name) => {
+      const data = await apiFetch('/api/v1/workspaces', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      if (data.workspace) {
+        setWorkspaces((prev) => [...prev, data.workspace]);
+        await switchWorkspace(data.workspace._id);
+      }
+      return data.workspace;
+    },
+    [switchWorkspace]
+  );
 
   // Load or catch up messages when switching activeRoomId.
   useEffect(() => {
@@ -996,6 +1071,10 @@ export function useChat() {
   );
 
   return {
+    workspaces,
+    activeWorkspace,
+    switchWorkspace,
+    createWorkspace,
     rooms,
     roomsLoading,
     activeRoomId,

@@ -7,6 +7,8 @@ import {
   createPollSchema,
   createReportSchema,
   createRoomSchema,
+  createWorkspaceInviteSchema,
+  createWorkspaceSchema,
   draftSchema,
   loginSchema,
   moderationActionSchema,
@@ -15,7 +17,10 @@ import {
   registerSchema,
   roomSummarySchema,
   scheduleMessageSchema,
+  transferWorkspaceSchema,
   updateRoomSchema,
+  updateWorkspaceMemberSchema,
+  updateWorkspaceSettingsSchema,
   userStatusSchema,
   votePollSchema,
 } from '../utils/validators.js';
@@ -187,6 +192,67 @@ export function generateOpenApiDocument() {
     tags: ['Users'],
     security: [{ bearerAuth: [] }],
     request: { body: jsonBody(userStatusSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'get',
+    path: '/api/v1/workspaces',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/workspaces',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(createWorkspaceSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/workspaces/{id}/settings',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(updateWorkspaceSettingsSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'patch',
+    path: '/api/v1/workspaces/{id}/members/{userId}',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(updateWorkspaceMemberSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/workspaces/{id}/transfer',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(transferWorkspaceSchema) },
+    responses: okResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/workspaces/{id}/invites',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
+    request: { body: jsonBody(createWorkspaceInviteSchema) },
+    responses: createdResp,
+  });
+
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/workspaces/invites/{token}/redeem',
+    tags: ['Workspaces'],
+    security: [{ bearerAuth: [] }],
     responses: okResp,
   });
 

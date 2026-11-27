@@ -22,6 +22,12 @@ const userSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+      default: null,
+    },
     globalRole: {
       type: String,
       enum: ['user', 'admin'],

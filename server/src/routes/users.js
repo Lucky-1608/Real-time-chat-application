@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import User from '../models/User.js';
 import Room from '../models/Room.js';
+import WorkspaceMember from '../models/WorkspaceMember.js';
 import StarredMessage from '../models/StarredMessage.js';
 import Draft from '../models/Draft.js';
 import { serializeMessage } from '../models/Message.js';
 import { requireAuth } from '../middleware/auth.js';
+import { resolveWorkspace } from '../middleware/workspace.js';
+import { assertCan } from '../services/permissions.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { AppError } from '../middleware/errorHandler.js';
 import { objectIdSchema, userSearchQuerySchema, userStatusSchema } from '../utils/validators.js';
@@ -21,18 +24,35 @@ export function createUsersRouter({ rateLimiter } = {}) {
     router.use(rateLimiter);
   }
 
-  // GET /api/users?q= — search users by username prefix (excludes self, max 20)
+  // GET /api/users?q= — search workspace members by username prefix (excludes self, max 20; blocked for guests)
   router.get(
     '/',
+    resolveWorkspace,
     asyncHandler(async (req, res) => {
+      assertCan(
+        req.user,
+        'workspace.members.list',
+        { workspaceRole: req.workspaceMember?.role },
+        'Guests cannot list workspace members'
+      );
+
       const parsed = userSearchQuerySchema.safeParse(req.query);
       if (!parsed.success) {
         throw new AppError(parsed.error.issues[0]?.message || 'Invalid search query', 400);
       }
 
+      const wsMembers = await WorkspaceMember.find(
+        { workspace: req.workspaceId, status: 'active', user: { $ne: req.user.id } },
+        { user: 1 }
+      ).lean();
+      const memberIds = wsMembers.map((m) => m.user);
+      if (memberIds.length === 0) {
+        return res.status(200).json({ users: [] });
+      }
+
       const { q } = parsed.data;
       const filter = {
-        _id: { $ne: req.user.id },
+        _id: { $in: memberIds },
       };
 
       if (q) {

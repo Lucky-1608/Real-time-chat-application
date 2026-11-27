@@ -273,3 +273,47 @@ export const createPollSchema = z.object({
 export const votePollSchema = z.object({
   optionIds: z.array(z.string().min(1)).min(1, 'Select at least one option').max(6),
 });
+
+export const createWorkspaceSchema = z.object({
+  name: z.string().trim().min(2, 'Workspace name must be at least 2 characters').max(50),
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Slug must be lowercase alphanumeric with hyphens')
+    .min(2)
+    .max(40)
+    .optional(),
+});
+
+export const updateWorkspaceSettingsSchema = z.object({
+  name: z.string().trim().min(2).max(50).optional(),
+  allowExternalProcessing: z.boolean().optional(),
+  allowedInviteDomains: z
+    .array(
+      z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(/^[a-z0-9.-]+\.[a-z]{2,}$/, 'Invalid domain format')
+    )
+    .max(20)
+    .optional(),
+  retentionDays: z.number().int().min(1).max(3650).nullable().optional(),
+});
+
+export const updateWorkspaceMemberSchema = z.object({
+  role: z.enum(['owner', 'admin', 'member', 'guest']).optional(),
+  status: z.enum(['active', 'suspended']).optional(),
+});
+
+export const createWorkspaceInviteSchema = z.object({
+  email: z.string().trim().toLowerCase().email('Invalid email').optional(),
+  role: z.enum(['member', 'guest']).optional().default('member'),
+  expiresInHours: z.number().min(1).max(720).nullable().optional().default(168),
+  maxUses: z.number().int().min(1).max(1000).nullable().optional().default(null),
+});
+
+export const transferWorkspaceSchema = z.object({
+  targetUserId: objectIdSchema,
+});

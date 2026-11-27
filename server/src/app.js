@@ -17,6 +17,7 @@ import { createUploadsRouter } from './routes/uploads.js';
 import { createAdminRouter } from './routes/admin.js';
 import { createReportsRouter } from './routes/reports.js';
 import { createAccountRouter } from './routes/account.js';
+import { createWorkspacesRouter } from './routes/workspaces.js';
 import { defaultStorageService } from './services/storage.js';
 import { defaultSummaryService } from './services/summaryService.js';
 import { defaultPasswordService } from './services/passwordService.js';
@@ -163,6 +164,7 @@ export function createApp({
     passwordService,
   });
   const messagesRouter = createMessagesRouter();
+  const workspacesRouter = createWorkspacesRouter({ rateLimiter: sharedApiLimiter });
 
   const openApiDoc = generateOpenApiDocument();
   const docsMiddlewares = env.NODE_ENV === 'production' ? [requireAuth, requireAdmin] : [];
@@ -170,6 +172,7 @@ export function createApp({
 
   // Primary versioned API routes (/api/v1/*)
   app.use('/api/v1/auth', authRouter);
+  app.use('/api/v1/workspaces', workspacesRouter);
   app.use('/api/v1/rooms', roomsRouter);
   app.use('/api/v1/users', usersRouter);
   app.use('/api/v1/uploads', uploadsRouter);
@@ -185,6 +188,7 @@ export function createApp({
     next();
   };
   app.use('/api/auth', deprecateLegacyApi, authRouter);
+  app.use('/api/workspaces', deprecateLegacyApi, workspacesRouter);
   app.use('/api/rooms', deprecateLegacyApi, roomsRouter);
   app.use('/api/users', deprecateLegacyApi, usersRouter);
   app.use('/api/uploads', deprecateLegacyApi, uploadsRouter);

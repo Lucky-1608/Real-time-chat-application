@@ -1,6 +1,10 @@
 import styles from './RoomSidebar.module.css';
 
 export default function RoomSidebar({
+  workspaces = [],
+  activeWorkspace = null,
+  onSwitchWorkspace,
+  onCreateWorkspace,
   rooms,
   activeRoomId,
   unreadByRoom,
@@ -36,6 +40,55 @@ export default function RoomSidebar({
           ×
         </button>
       </div>
+
+      {workspaces.length > 0 && (
+        <div
+          className={styles.section}
+          style={{
+            padding: '0.5rem 0.75rem',
+            borderBottom: '1px solid var(--border, rgba(255,255,255,0.08))',
+            display: 'flex',
+            gap: '0.4rem',
+            alignItems: 'center',
+          }}
+        >
+          <select
+            aria-label="Switch workspace"
+            value={activeWorkspace?._id || ''}
+            onChange={(e) => onSwitchWorkspace?.(e.target.value)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              padding: '0.3rem 0.45rem',
+              borderRadius: '6px',
+              background: 'var(--bg-elevated, rgba(255,255,255,0.06))',
+              color: 'inherit',
+              border: '1px solid var(--border, rgba(255,255,255,0.12))',
+              fontSize: '0.85rem',
+            }}
+          >
+            {workspaces.map((ws) => (
+              <option key={ws._id} value={ws._id}>
+                {ws.name}
+              </option>
+            ))}
+          </select>
+          {onCreateWorkspace && (
+            <button
+              type="button"
+              className={styles.iconBtn}
+              aria-label="Create workspace"
+              title="Create workspace"
+              onClick={() => {
+                const name = window.prompt('New workspace name:');
+                if (name?.trim()) onCreateWorkspace(name.trim());
+              }}
+            >
+              +
+            </button>
+          )}
+        </div>
+      )}
 
       <div className={styles.section}>
         <div className={styles.sectionHeader}>

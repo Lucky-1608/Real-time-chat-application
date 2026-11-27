@@ -6,6 +6,7 @@ import { createApp } from '../src/app.js';
 import User from '../src/models/User.js';
 import Room from '../src/models/Room.js';
 import Message from '../src/models/Message.js';
+import WorkspaceMember from '../src/models/WorkspaceMember.js';
 import { MAX_ROOMS_PER_USER } from '../src/services/roomService.js';
 
 describe('Sub-phase 6.3: Rooms & Users REST API', () => {
@@ -240,13 +241,21 @@ describe('Sub-phase 6.3: Rooms & Users REST API', () => {
   it('searches users by prefix via GET /api/users?q= excluding self, capped at 20, without passwordHash', async () => {
     const app = createApp();
     const alice = await register(app, 'Alice');
+    const roomsRes = await request(app)
+      .get('/api/rooms')
+      .set('Authorization', `Bearer ${alice.token}`);
+    const wsId = roomsRes.body.rooms[0].workspace;
+
+    const memberRows = [];
     for (let i = 1; i <= 22; i++) {
-      await User.create({
+      const u = await User.create({
         username: `DevUser_${i}`,
         usernameLower: `devuser_${i}`,
         passwordHash: 'secret-hash',
       });
+      memberRows.push({ workspace: wsId, user: u._id, role: 'member', status: 'active' });
     }
+    await WorkspaceMember.insertMany(memberRows);
 
     const res = await request(app)
       .get('/api/users?q=dev')

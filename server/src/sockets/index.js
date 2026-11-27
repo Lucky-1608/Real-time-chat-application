@@ -29,9 +29,28 @@ const ALLOWED_SOCKET_EVENTS = new Set([
   'typing:start',
   'typing:stop',
   'room:subscribe',
+  'workspace:switch',
   'auth:refresh',
   'test:ping',
 ]);
+
+async function emitWorkspacePresence(io, presence, workspaceId) {
+  if (!workspaceId || mongoose.connection.readyState !== 1) {
+    io.emit('presence:list', presence.getOnlineUsers());
+    return;
+  }
+  try {
+    const members = await WorkspaceMember.find(
+      { workspace: workspaceId, status: 'active' },
+      { user: 1 }
+    ).lean();
+    const memberIds = new Set(members.map((m) => m.user.toString()));
+    const list = presence.getOnlineUsers().filter((u) => memberIds.has(u.userId));
+    io.to(`ws:${workspaceId}`).emit('presence:list', list);
+  } catch {
+    // Ignore transient DB errors during socket shutdown
+  }
+}
 
 /**
  * Attaches Socket.io to an existing Node http.Server so REST and WebSocket
@@ -120,10 +139,12 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
             ? String(requestedWs)
             : socket.data.workspaceIds[0];
 
-        const rooms = await Room.find(
-          { workspace: { $in: memberships.map((m) => m.workspace) }, 'members.user': user.id },
-          { _id: 1 }
-        ).lean();
+        const rooms = socket.data.activeWorkspaceId
+          ? await Room.find(
+              { workspace: socket.data.activeWorkspaceId, 'members.user': user.id },
+              { _id: 1 }
+            ).lean()
+          : [];
         socket.data.initialRoomIds = rooms.map((r) => r._id.toString());
       } else {
         socket.data.workspaceIds = [];
@@ -180,13 +201,16 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
 
     socket.join(`user:${userId}`);
     socket.join(`session:${sid}`);
+    if (socket.data.activeWorkspaceId) {
+      socket.join(`ws:${socket.data.activeWorkspaceId}`);
+    }
     for (const roomId of socket.data.initialRoomIds || []) {
       socket.join(`room:${roomId}`);
     }
 
     presence.addConnection(userId, username);
     activeSocketsGauge.inc();
-    io.emit('presence:list', presence.getOnlineUsers());
+    void emitWorkspacePresence(io, presence, socket.data.activeWorkspaceId);
 
     // Per-event middleware: enforce event allowlist, global rate limit, and token expiration.
     socket.use((packet, next) => {
@@ -264,6 +288,49 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
       }
     });
 
+    socket.on('workspace:switch', async (payload, ack) => {
+      const respond = typeof ack === 'function' ? ack : () => {};
+      try {
+        const workspaceId = String(payload?.workspaceId || '');
+        if (!mongoose.isValidObjectId(workspaceId)) {
+          return respond({ ok: false, error: 'Invalid workspaceId' });
+        }
+        const membership = await WorkspaceMember.findOne({
+          workspace: workspaceId,
+          user: userId,
+          status: 'active',
+        }).lean();
+        if (!membership) {
+          return respond({ ok: false, error: 'Not a member of this workspace' });
+        }
+
+        for (const channel of [...socket.rooms]) {
+          if (channel.startsWith('ws:') || channel.startsWith('room:')) {
+            socket.leave(channel);
+          }
+        }
+
+        socket.data.activeWorkspaceId = workspaceId;
+        if (!socket.data.workspaceIds?.includes(workspaceId)) {
+          socket.data.workspaceIds = [...(socket.data.workspaceIds || []), workspaceId];
+        }
+        socket.join(`ws:${workspaceId}`);
+
+        const rooms = await Room.find(
+          { workspace: workspaceId, 'members.user': userId },
+          { _id: 1 }
+        ).lean();
+        for (const r of rooms) {
+          socket.join(`room:${r._id.toString()}`);
+        }
+
+        await emitWorkspacePresence(io, presence, workspaceId);
+        return respond({ ok: true, workspaceId });
+      } catch {
+        return respond({ ok: false, error: 'Failed to switch workspace' });
+      }
+    });
+
     registerChatHandlers(io, socket, presence, { storageService, floodControl });
 
     socket.on('disconnecting', () => {
@@ -292,7 +359,14 @@ export function attachSockets(httpServer, app = null, { storageService, floodCon
 
       const wentOffline = presence.removeConnection(userId);
       if (wentOffline) {
-        io.emit('presence:list', presence.getOnlineUsers());
+        const wsIds = socket.data.workspaceIds || [];
+        if (wsIds.length === 0) {
+          io.emit('presence:list', presence.getOnlineUsers());
+        } else {
+          for (const wsId of wsIds) {
+            void emitWorkspacePresence(io, presence, wsId);
+          }
+        }
       }
     });
 

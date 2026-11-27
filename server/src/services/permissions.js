@@ -1,6 +1,7 @@
 import { AppError } from '../middleware/errorHandler.js';
 
 export const ROOM_ROLES = ['owner', 'admin', 'moderator', 'member'];
+export const WORKSPACE_ROLES = ['owner', 'admin', 'member', 'guest'];
 export const GLOBAL_ROLES = ['admin', 'user'];
 
 export const ROLE_RANK = {
@@ -8,6 +9,25 @@ export const ROLE_RANK = {
   admin: 3,
   moderator: 2,
   member: 1,
+};
+
+export const WORKSPACE_ROLE_RANK = {
+  owner: 4,
+  admin: 3,
+  member: 2,
+  guest: 1,
+};
+
+export const WORKSPACE_PERMISSION_MATRIX = {
+  'workspace.read': ['owner', 'admin', 'member', 'guest'],
+  'workspace.rooms.browse': ['owner', 'admin', 'member'],
+  'workspace.rooms.create': ['owner', 'admin', 'member'],
+  'workspace.members.list': ['owner', 'admin', 'member'],
+  'workspace.members.manage': ['owner', 'admin'],
+  'workspace.invite.create': ['owner', 'admin'],
+  'workspace.settings': ['owner', 'admin'],
+  'workspace.delete': ['owner'],
+  'workspace.transfer': ['owner'],
 };
 
 /**
@@ -49,12 +69,51 @@ function getMemberRole(room, userId) {
 /**
  * Central authorization predicate used across REST routes and socket handlers.
  */
-export function can(user, action, { room = null, targetUser = null, targetRole = null, message = null } = {}) {
+export function can(
+  user,
+  action,
+  {
+    room = null,
+    targetUser = null,
+    targetRole = null,
+    message = null,
+    workspaceRole = null,
+    workspaceMember = null,
+  } = {}
+) {
   const userId = getUserId(user);
   if (!userId) return false;
 
   if (action === 'admin.audit.read') {
     return user?.globalRole === 'admin';
+  }
+
+  if (action.startsWith('workspace.')) {
+    const allowedWsRoles = WORKSPACE_PERMISSION_MATRIX[action];
+    if (!allowedWsRoles) return false;
+    const actorWsRole = workspaceRole || workspaceMember?.role || null;
+    if (!actorWsRole || !allowedWsRoles.includes(actorWsRole)) {
+      return false;
+    }
+
+    if (action === 'workspace.members.manage') {
+      const currentTargetRole = targetUser?.role || null;
+      if (actorWsRole === 'owner') {
+        return true;
+      }
+      if (actorWsRole === 'admin') {
+        if (currentTargetRole && WORKSPACE_ROLE_RANK[currentTargetRole] >= WORKSPACE_ROLE_RANK.admin) {
+          return false;
+        }
+        if (targetRole && WORKSPACE_ROLE_RANK[targetRole] >= WORKSPACE_ROLE_RANK.admin) {
+          return false;
+        }
+        return true;
+      }
+      return false;
+    }
+
+    return true;
   }
 
   const allowedRoles = PERMISSION_MATRIX[action];
