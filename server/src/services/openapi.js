@@ -337,6 +337,14 @@ export function generateOpenApiDocument() {
     responses: okResp,
   });
 
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/ai/ask',
+    tags: ['AI'],
+    security: [{ bearerAuth: [] }],
+    responses: okResp,
+  });
+
   const generator = new OpenApiGeneratorV3(registry.definitions);
   return generator.generateDocument({
     openapi: '3.0.3',
